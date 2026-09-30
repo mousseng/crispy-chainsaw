@@ -18,15 +18,15 @@ return {
         hp            = 0xFF7FD35F,
         hp_low        = 0xFFE0C050,
         hp_crit       = 0xFFE05A4A,
-        mp            = 0xFF5FA2E0,
-        tp            = 0xFFE0C35F,
-        tp_full       = 0xFFFFE89A,
+        mp            = 0xFFE0C35F,
+        tp            = 0xFF5FA2E0,
+        tp_full       = 0xFF9CD2FF,
         pet           = 0xFFC08FE0,
 
         target        = 0xFFFFFFFF,
         subtarget     = 0xFF7FC8FF,
         party_target  = 0xFFFFB060,
-        row_target    = 0x26FFFFFF,
+        row_target    = 0x40FFFFFF,
 
         leader        = 0xFFFFD860,
         alliance_lead = 0xFFB0E0FF,
@@ -39,7 +39,7 @@ return {
     -- mapped onto gdifonts settings by ui/text.lua. sizes are logical pixels.
     font = {
         family  = 'Arial',
-        size    = 12,
+        size    = 13,
         bold    = true,
         outline = 2,
         outline_color = 0xFF000000,
@@ -48,10 +48,10 @@ return {
     -- glyph sets pre-rendered into the atlas for fast-changing values (hp, tp,
     -- timers). each merges over `font`; `chars` limits what can be drawn.
     glyphs = {
-        number = { size = 11, chars = '0123456789,.%/-+: ' },
+        number = { size = 12, chars = '0123456789,.%/-+: ' },
         -- job/level labels (e.g. WHM75/SCH37): only the letters job
         -- abbreviations use.
-        job    = { size = 9, chars = 'ABCDEFGHIKLMNOPRSTUW0123456789/' },
+        job    = { size = 10, chars = 'ABCDEFGHIKLMNOPRSTUW0123456789/' },
     },
 
     slots = {
@@ -59,6 +59,7 @@ return {
         panel_border         = { gen = 'rounded_rect', radius = 6, stroke = 1, fill = false },
         panel_shadow         = { gen = 'shadow', radius = 6, blur = 10, knockout = true },
         panel_glow           = { gen = 'glow', radius = 6, blur = 6 },
+        row_highlight        = { gen = 'shadow', radius = 5, blur = 5 },
 
         bar                  = { gen = 'chamfer_rect', corner = 3 },
         bar_bg               = { gen = 'chamfer_rect', corner = 3 },

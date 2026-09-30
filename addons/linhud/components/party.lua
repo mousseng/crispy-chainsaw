@@ -128,10 +128,11 @@ end
 
 -- layout in logical pixels. each row: name and job on top, bars, then values
 -- under the bars (as ffxiv does), so nothing has to share a line with a number.
-local PAD, ICON_W, ROW_H, ROW_GAP = 8, 16, 38, 2;
-local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 16, 22;
+local PAD, ICON_W, ROW_H, ROW_GAP = 8, 16, 40, 2;
+local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 17, 23;
 
-local function bar(r, x, y, w, h, frac, color)
+---glow: colour of the glow drawn when full, or nil for none.
+local function bar(r, x, y, w, h, frac, color, glow)
     local c = theme.color;
     r.nineslice('bar_bg', x, y, w, h, c('bar_bg'));
     if (frac > 0) then
@@ -139,8 +140,8 @@ local function bar(r, x, y, w, h, frac, color)
         r.nineslice('bar', x, y, w, h, color);
         r.pop_clip();
     end
-    if (frac >= 1) then
-        r.nineslice('bar_glow', x, y, w, h, c('glow'));
+    if (glow ~= nil and frac >= 1) then
+        r.nineslice('bar_glow', x, y, w, h, glow);
     end
     r.nineslice('bar_border', x, y, w, h, c('bar_border'));
 end
@@ -182,17 +183,15 @@ function party.draw(r, ctx, x, y)
         local by = ry + BAR_Y * s;
         local targeted = m.in_zone and m.target_index ~= 0;
 
-        -- target / subtarget highlight behind the row
+        -- target / subtarget highlight behind the row. the highlight is an
+        -- outset slot, so its feathered edge extends past the rect; inset to
+        -- keep it inside the panel.
+        local hx0, hy0, hw, hh = x + 6 * s, ry + 2 * s, w - 12 * s, (ROW_H - 4) * s;
         if (targeted and m.target_index == target_index) then
-            r.rect(x + 3 * s, ry - 1 * s, w - 6 * s, (ROW_H + 2) * s, c('row_target'));
+            r.nineslice('row_highlight', hx0, hy0, hw, hh, c('row_target'));
         end
         if (targeted and m.target_index == subtarget_index) then
-            local ox, oy, ow, oh = x + 3 * s, ry - 1 * s, w - 6 * s, (ROW_H + 2) * s;
-            local sc = c('subtarget');
-            r.rect(ox, oy, ow, 1 * s, sc);
-            r.rect(ox, oy + oh - 1 * s, ow, 1 * s, sc);
-            r.rect(ox, oy, 1 * s, oh, sc);
-            r.rect(ox + ow - 1 * s, oy, 1 * s, oh, sc);
+            r.nineslice('panel_border', hx0 - 2 * s, hy0 - 2 * s, hw + 4 * s, hh + 4 * s, c('subtarget'));
         end
         if (cursor_slot == i) then
             r.sprite('arrow_party', x - 3 * s, ry + ROW_H * 0.5 * s, c('party_target'));
@@ -213,7 +212,7 @@ function party.draw(r, ctx, x, y)
             local hpc = hp_color(m.hpp);
             bar(r, hx, by, HP_W * s, BAR_H * s, m.hpp, hpc);
             bar(r, mx, by, MP_W * s, BAR_H * s, m.mpp, c('mp'));
-            bar(r, tx, by, TP_W * s, BAR_H * s, math.min(m.tp, 1000) / 1000, m.tp >= 1000 and c('tp_full') or c('tp'));
+            bar(r, tx, by, TP_W * s, BAR_H * s, math.min(m.tp, 1000) / 1000, m.tp >= 1000 and c('tp_full') or c('tp'), c('tp_full'));
 
             m.hp_num = m.hp_num or text.number('number');
             m.mp_num = m.mp_num or text.number('number');

@@ -28,6 +28,7 @@ theme.SLOTS = {
     panel_border         = 'nineslice',
     panel_shadow         = 'outset',
     panel_glow           = 'outset',
+    row_highlight        = 'outset',
     bar                  = 'nineslice',
     bar_bg               = 'nineslice',
     bar_border           = 'nineslice',
