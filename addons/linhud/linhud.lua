@@ -259,6 +259,19 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
+    -- Handle: /linhud <component> grow <dir> - Sets which way a component grows.
+    if (#args >= 3 and args[3] == 'grow' and hud.get(args[2]) ~= nil) then
+        local cs = hud.get(args[2]).ctx.settings;
+        if (#args == 3) then
+            msg('%s grows x: %s, y: %s', args[2], cs.grow_x, cs.grow_y);
+        elseif (hud.set_grow(args[2], args[4])) then
+            msg('%s grows x: %s, y: %s', args[2], cs.grow_x, cs.grow_y);
+        else
+            msg('grow must be up, down, left, right, vcenter, hcenter or auto');
+        end
+        return;
+    end
+
     -- Handle: /linhud <component> [on | off] - Toggles or sets a component.
     if (#args >= 2 and hud.get(args[2]) ~= nil) then
         local c = hud.get(args[2]);
@@ -271,5 +284,5 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    msg('usage: /linhud <component> [on|off] | list | unlock | lock | theme [name] | scale <n> | stats | quads | dump');
+    msg('usage: /linhud <component> [on|off] | <component> grow <dir> | list | unlock | lock | theme [name] | scale <n> | stats | quads | dump');
 end);

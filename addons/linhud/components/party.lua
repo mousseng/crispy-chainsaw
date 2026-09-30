@@ -20,7 +20,7 @@ local FLAG_SYNC = 0x100;   -- member flag mask: level sync
 
 local party = {
     name = 'party',
-    defaults = { enabled = true, anchor = 'left', x = 20, y = 0, hide_solo = false },
+    defaults = { enabled = true, anchor = 'left', x = 20, y = -120, grow_y = 'down', hide_solo = false },
 };
 
 -- reused member records, one per party slot.

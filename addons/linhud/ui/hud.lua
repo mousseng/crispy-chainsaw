@@ -19,6 +19,10 @@
 * positions are stored as an anchor (one of nine screen points) plus an offset
 * in logical pixels, so the hud stays in place across resolution changes. size
 * is whatever the component drew last frame.
+*
+* grow_x / grow_y pick which edge stays put when a component changes size
+* (x: 'right' | 'left' | 'center', y: 'down' | 'up' | 'center'). 'auto' follows
+* the anchor: a 'left' anchor is vertically centred, so it grows both ways.
 --]]
 
 local theme = require('ui.theme');
@@ -35,6 +39,10 @@ local ANCHOR_NAMES = {
     [0.5] = { [0] = 'top',     [0.5] = 'center', [1] = 'bottom' },
     [1]   = { [0] = 'topright', [0.5] = 'right', [1] = 'bottomright' },
 };
+
+-- grow direction -> fraction of the component's size at its fixed point.
+local GROW_X = { right = 0, center = 0.5, left = 1 };
+local GROW_Y = { down = 0, center = 0.5, up = 1 };
 
 local MSG = { [0x200] = 'move', [0x201] = 'ldown', [0x202] = 'lup', [0x204] = 'rdown', [0x205] = 'rup', [0x20A] = 'wheel' };
 local UP_OF = { ldown = 'lup', rdown = 'rup' };
@@ -65,7 +73,7 @@ end
 function hud.defaults()
     local out = T{};
     for _, c in ipairs(components) do
-        local d = T{ enabled = true, anchor = 'topleft', x = 100, y = 100 };
+        local d = T{ enabled = true, anchor = 'topleft', x = 100, y = 100, grow_x = 'auto', grow_y = 'auto' };
         for k, v in pairs(c.mod.defaults or {}) do d[k] = v; end
         out[c.mod.name] = d;
     end
@@ -114,18 +122,34 @@ end
 
 --[[ layout ]]--
 
+---the component's fixed point, as fractions of its size.
+local function pivot(s, a)
+    return GROW_X[s.grow_x] or a[1], GROW_Y[s.grow_y] or a[2];
+end
+
 local function place(c, scale)
     local s, ctx = c.ctx.settings, c.ctx;
     if (drag ~= nil and drag.c == c) then
         return drag.x, drag.y;
     end
     local a = ANCHORS[s.anchor] or ANCHORS.topleft;
-    local x = screen_w * a[1] + s.x * scale - ctx.w * a[1];
-    local y = screen_h * a[2] + s.y * scale - ctx.h * a[2];
+    local px, py = pivot(s, a);
+    local x = screen_w * a[1] + s.x * scale - ctx.w * px;
+    local y = screen_h * a[2] + s.y * scale - ctx.h * py;
     -- keep it on screen (e.g. after a resolution change)
     x = math.max(0, math.min(x, screen_w - ctx.w));
     y = math.max(0, math.min(y, screen_h - ctx.h));
     return math.floor(x + 0.5), math.floor(y + 0.5);
+end
+
+---stores the offset of the component's fixed point from its anchor, for a
+---component currently drawn at (x, y).
+local function store(c, x, y, scale)
+    local ctx, s = c.ctx, c.ctx.settings;
+    local a = ANCHORS[s.anchor] or ANCHORS.topleft;
+    local px, py = pivot(s, a);
+    s.x = math.floor((x + ctx.w * px - screen_w * a[1]) / scale + 0.5);
+    s.y = math.floor((y + ctx.h * py - screen_h * a[2]) / scale + 0.5);
 end
 
 ---after a drag: pick the anchor nearest the component (screen thirds) and
@@ -136,9 +160,28 @@ local function commit(c, x, y, scale)
     local ax = cx < screen_w / 3 and 0 or (cx < screen_w * 2 / 3 and 0.5 or 1);
     local ay = cy < screen_h / 3 and 0 or (cy < screen_h * 2 / 3 and 0.5 or 1);
     s.anchor = ANCHOR_NAMES[ax][ay];
-    s.x = math.floor((x + ctx.w * ax - screen_w * ax) / scale + 0.5);
-    s.y = math.floor((y + ctx.h * ay - screen_h * ay) / scale + 0.5);
+    store(c, x, y, scale);
     if (hud.on_save) then hud.on_save(); end
+end
+
+---sets which way a component grows ('up', 'down', 'left', 'right', 'auto',
+---or 'hcenter' / 'vcenter'), keeping it where it is on screen.
+---@return boolean ok
+function hud.set_grow(name, dir)
+    local c = by_name[name];
+    if (c == nil or c.ctx.settings == nil) then return false; end
+    local s = c.ctx.settings;
+    if (dir == 'up' or dir == 'down') then s.grow_y = dir;
+    elseif (dir == 'left' or dir == 'right') then s.grow_x = dir;
+    elseif (dir == 'vcenter') then s.grow_y = 'center';
+    elseif (dir == 'hcenter') then s.grow_x = 'center';
+    elseif (dir == 'auto') then s.grow_x, s.grow_y = 'auto', 'auto';
+    else return false; end
+    if (theme.active() ~= nil and c.ctx.w > 0) then
+        store(c, c.ctx.x, c.ctx.y, theme.active().scale);
+    end
+    if (hud.on_save) then hud.on_save(); end
+    return true;
 end
 
 --[[ frame ]]--
