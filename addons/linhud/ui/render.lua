@@ -51,7 +51,7 @@ local cmd_tex, cmd_first, cmd_count = {}, {}, {};
 local ncmds = 0;
 
 local clip_stack, clip = {}, nil; -- clip = { x0, y0, x1, y1 } or nil
-local opacity = 1;
+local base, opacity = 1, 1; -- base: set by the hud per component; opacity: base * set_opacity()
 
 local last_stats = { quads = 0, calls = 0 };
 
@@ -141,7 +141,7 @@ end
 
 function render.begin_frame()
     nquads, ncmds = 0, 0;
-    clip, opacity = nil, 1;
+    clip, base, opacity = nil, 1, 1;
     for i = #clip_stack, 1, -1 do clip_stack[i] = nil; end
 end
 
@@ -163,9 +163,29 @@ function render.pop_clip()
     clip_stack[n] = nil;
 end
 
----multiplies the alpha of everything drawn afterwards (0..1).
+---depth of the clip stack, for restore().
+function render.depth()
+    return #clip_stack;
+end
+
+---undoes state left behind by a draw that didn't finish (a component that
+---errored mid-draw): pops clips down to depth and resets opacity.
+function render.restore(depth)
+    while (#clip_stack > depth) do render.pop_clip(); end
+    opacity = base;
+end
+
+---multiplies the alpha of everything drawn afterwards (0..1), on top of the
+---base opacity.
 function render.set_opacity(a)
-    opacity = max(0, min(1, a));
+    opacity = base * max(0, min(1, a));
+end
+
+---the opacity set_opacity works relative to; the hud uses it to fade whole
+---components. resets set_opacity.
+function render.set_base_opacity(a)
+    base = max(0, min(1, a));
+    opacity = base;
 end
 
 --[[ drawing ]]--

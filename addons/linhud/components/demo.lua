@@ -7,9 +7,6 @@ local demo = require('ui.demo');
 local text = require('ui.text');
 
 return {
-    name = 'demo',
-    defaults = { enabled = false, anchor = 'topleft', x = 200, y = 200 },
-
     update = function (ctx, dt)
         ctx.t = (ctx.t or 0) + dt;
     end,

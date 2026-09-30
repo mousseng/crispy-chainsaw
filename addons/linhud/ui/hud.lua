@@ -1,10 +1,11 @@
 --[[
 * component registry: settings, layout, drawing and mouse routing.
 *
-* a component is a module in components/ returning:
+* components are listed, with their settings defaults, in components/list.lua.
+* each is a module components/<name>.lua, required the first time the
+* component is enabled and dropped again when it's disabled, so a disabled
+* component costs nothing. the module returns:
 *
-*   name      string, also its settings key and command name
-*   defaults  table of its settings (enabled, anchor, x, y are managed here)
 *   draw      fn(r, ctx, x, y) -> w, h   draws at screen (x, y); returns size
 *   update    fn(ctx, dt)                optional; game state, before draw
 *   measure   fn(ctx) -> w, h            optional; size this frame, before
@@ -15,15 +16,28 @@
 *   mouse     fn(ctx, ev, x, y, e)       optional; ev = 'ldown' | 'lup' | 'rdown'
 *                                        | 'rup' | 'wheel', x/y relative to the
 *                                        component. return true to consume.
-*   destroy   fn(ctx)                    optional
+*   destroy   fn(ctx)                    optional; called before the module is
+*                                        dropped (disabled, reloaded, failed)
+*
+* every call into a component is guarded: if one raises an error, the
+* component is shut off (hud.on_error reports it) and the rest of the hud
+* carries on. `enable` or `reload` clears the failure and tries again.
 *
 * ctx is a per-component table: { name, settings, scale, x, y, w, h, hover }.
+* components may keep their own fields on it; it is replaced on each load.
 * ctx.settings is rebound when ashita reloads settings (e.g. on character
 * switch), so components must read it through ctx each time, never cache it.
 *
 * positions are stored as an anchor (one of nine screen points) plus an offset
 * in logical pixels, so the hud stays in place across resolution changes. size
 * is whatever the component drew last frame.
+*
+* hiding: the addon passes hud.frame the client's ui state (game/client.lua:
+* chat expanded, map open, ...). settings.hide says which conditions hide the
+* hud; a component's own `hide` table overrides single conditions. hidden
+* components vanish at once (so they never sit on top of the game's own
+* interface) and fade back in over settings.fade_in seconds. while hidden they
+* skip update and draw and don't take the mouse.
 *
 * grow_x / grow_y pick which edge stays put when a component changes size
 * (x: 'right' | 'left' | 'center', y: 'down' | 'up' | 'center'). 'auto' follows
@@ -52,7 +66,7 @@ local GROW_Y = { down = 0, center = 0.5, up = 1 };
 local MSG = { [0x200] = 'move', [0x201] = 'ldown', [0x202] = 'lup', [0x204] = 'rdown', [0x205] = 'rup', [0x20A] = 'wheel' };
 local UP_OF = { ldown = 'lup', rdown = 'rup' };
 
-local components = {}; -- in paint order; later entries draw on top
+local components = {}; -- { name, defaults, mod, ctx, failed, alpha, shown }, in paint order
 local by_name = {};
 local settings = nil;  -- the addon settings table (settings.components[name])
 local screen_w, screen_h = 0, 0;
@@ -63,24 +77,31 @@ local captured = {};   -- button -> component that consumed its down event
 local mouse_x, mouse_y = -1, -1;
 
 hud.on_save = nil;     -- set by the addon; called after layout changes
+hud.on_error = nil;    -- set by the addon; fn(name, what, err, trace) when a component fails
 
 --[[ registration ]]--
 
----@param mod table component module (see header)
-function hud.register(mod)
-    assert(type(mod.name) == 'string' and type(mod.draw) == 'function', 'component needs name and draw');
-    local c = { mod = mod, ctx = { name = mod.name, x = 0, y = 0, w = 0, h = 0, hover = false } };
+local function new_ctx(c)
+    return { name = c.name, settings = c.ctx and c.ctx.settings, x = 0, y = 0, w = 0, h = 0, hover = false };
+end
+
+---@param name string component name: its module, settings key and command name
+---@param defaults table|nil its settings defaults
+function hud.register(name, defaults)
+    -- alpha starts at 0 so the hud fades in when first shown (e.g. after login).
+    local c = { name = name, defaults = defaults or {}, mod = nil, failed = nil, alpha = 0, shown = false };
+    c.ctx = new_ctx(c);
     components[#components + 1] = c;
-    by_name[mod.name] = c;
+    by_name[name] = c;
 end
 
 ---defaults for every registered component, for settings.load.
 function hud.defaults()
     local out = T{};
     for _, c in ipairs(components) do
-        local d = T{ enabled = true, anchor = 'topleft', x = 100, y = 100, grow_x = 'auto', grow_y = 'auto' };
-        for k, v in pairs(c.mod.defaults or {}) do d[k] = v; end
-        out[c.mod.name] = d;
+        local d = T{ enabled = true, anchor = 'topleft', x = 100, y = 100, grow_x = 'auto', grow_y = 'auto', hide = T{} };
+        for k, v in pairs(c.defaults) do d[k] = v; end
+        out[c.name] = d;
     end
     return out;
 end
@@ -90,7 +111,7 @@ end
 function hud.bind(s)
     settings = s;
     for _, c in ipairs(components) do
-        c.ctx.settings = s.components[c.mod.name];
+        c.ctx.settings = s.components[c.name];
     end
     drag, captured = nil, {};
 end
@@ -99,19 +120,108 @@ function hud.get(name)
     return by_name[name];
 end
 
+---@return table[] { name, enabled, loaded, failed } per component
 function hud.list()
     local out = {};
     for _, c in ipairs(components) do
-        out[#out + 1] = { name = c.mod.name, enabled = c.ctx.settings and c.ctx.settings.enabled };
+        out[#out + 1] = {
+            name = c.name, enabled = c.ctx.settings and c.ctx.settings.enabled,
+            loaded = c.mod ~= nil, failed = c.failed,
+        };
     end
     return out;
+end
+
+--[[ loading and guarding ]]--
+
+local traceback = debug.traceback;
+local err_trace = nil; -- traceback of the last error caught by guard()
+
+local function handler(err)
+    err_trace = traceback(tostring(err), 2);
+    return err;
+end
+
+---drops the component's module, so the next load starts from a clean slate.
+local function unload(c)
+    if (c.mod ~= nil and c.mod.destroy ~= nil) then
+        xpcall(c.mod.destroy, handler, c.ctx); -- nothing to do if this fails too
+    end
+    c.mod = nil;
+    package.loaded['components.' .. c.name] = nil;
+    for k, v in pairs(captured) do
+        if (v == c) then captured[k] = nil; end
+    end
+    if (drag ~= nil and drag.c == c) then drag = nil; end
+    c.ctx = new_ctx(c);
+end
+
+---shuts a component off after an error until it's re-enabled or reloaded.
+local function fail(c, what, err)
+    c.failed = ('%s: %s'):format(what, tostring(err));
+    local trace = err_trace or tostring(err);
+    err_trace = nil;
+    unload(c);
+    if (hud.on_error) then hud.on_error(c.name, what, tostring(err), trace); end
+end
+
+---@return boolean ok, any a, any b the call's first two results when ok
+local function guard(c, what, fn, ...)
+    local ok, a, b = xpcall(fn, handler, ...);
+    if (not ok) then
+        fail(c, what, a);
+        return false;
+    end
+    return true, a, b;
+end
+
+---requires the component's module if it isn't loaded yet.
+---@return boolean loaded
+local function load(c)
+    if (c.mod ~= nil) then return true; end
+    if (c.failed ~= nil) then return false; end
+    local ok, mod = guard(c, 'load', require, 'components.' .. c.name);
+    if (not ok) then return false; end
+    if (type(mod) ~= 'table' or type(mod.draw) ~= 'function') then
+        fail(c, 'load', 'module must return a table with a draw function');
+        return false;
+    end
+    c.mod = mod;
+    return true;
+end
+
+---clears a failure and drops the module so it's required afresh on the next
+---frame (picking up edits to its file).
+function hud.reload(name)
+    local c = by_name[name];
+    if (c == nil) then return false; end
+    unload(c);
+    c.failed = nil;
+    return true;
 end
 
 function hud.set_enabled(name, on)
     local c = by_name[name];
     if (c == nil or c.ctx.settings == nil) then return false; end
     c.ctx.settings.enabled = on;
-    if (not on) then c.ctx.w, c.ctx.h = 0, 0; end
+    if (on) then c.failed = nil; else unload(c); end
+    if (hud.on_save) then hud.on_save(); end
+    return true;
+end
+
+---sets a global hide condition, or with name a component's override of it
+---(on = nil clears the override, back to the global setting).
+---@return boolean ok
+function hud.set_hide(name, cond, on)
+    if (settings == nil) then return false; end
+    if (name == nil) then
+        settings.hide[cond] = on;
+    else
+        local c = by_name[name];
+        if (c == nil or c.ctx.settings == nil) then return false; end
+        c.ctx.settings.hide = c.ctx.settings.hide or T{};
+        c.ctx.settings.hide[cond] = on;
+    end
     if (hud.on_save) then hud.on_save(); end
     return true;
 end
@@ -191,7 +301,45 @@ end
 
 --[[ frame ]]--
 
+---one component's frame; bails out at the first error (the component has been
+---shut off by then).
+local function draw_component(r, c, dt, scale)
+    local mod, ctx = c.mod, c.ctx;
+    ctx.scale = scale;
+    if (mod.update and not guard(c, 'update', mod.update, ctx, dt)) then return; end
+    if (mod.measure) then
+        local ok, w, h = guard(c, 'measure', mod.measure, ctx);
+        if (not ok) then return; end
+        ctx.w, ctx.h = w or 0, h or 0;
+    end
+    local x, y = place(c, scale);
+    ctx.x, ctx.y = x, y;
+    local depth = r.depth();
+    local ok, w, h = guard(c, 'draw', mod.draw, r, ctx, x, y);
+    if (not ok) then
+        r.restore(depth); -- whatever it drew before failing stays for this frame
+        return;
+    end
+    ctx.w, ctx.h = w or 0, h or 0;
+    ctx.hover = mouse_x >= x and mouse_x < x + ctx.w and mouse_y >= y and mouse_y < y + ctx.h;
+end
+
 local unlock_label = {}; -- component name -> text object, created on demand
+
+---whether any active condition hides the component: its own `hide` entry for
+---the condition if it has one, else the global setting.
+local function hidden(c, state)
+    if (state == nil) then return false; end
+    local own, global = c.ctx.settings.hide, settings.hide;
+    for cond, on in pairs(state) do
+        if (on) then
+            local h = own and own[cond];
+            if (h == nil) then h = global and global[cond]; end
+            if (h) then return true; end
+        end
+    end
+    return false;
+end
 
 ---updates and draws every enabled component.
 ---@param r table render module
@@ -199,22 +347,25 @@ local unlock_label = {}; -- component name -> text object, created on demand
 ---@param sw number screen width
 ---@param sh number screen height
 ---@param text table|nil text module (for unlock-mode labels)
-function hud.frame(r, dt, sw, sh, text)
+---@param state table|nil condition -> active (see game/client.lua)
+function hud.frame(r, dt, sw, sh, text, state)
     if (settings == nil or theme.active() == nil) then return; end
     screen_w, screen_h = sw, sh;
     local scale = theme.active().scale;
 
+    local fade_step = (settings.fade_in or 0) > 0 and dt / settings.fade_in or 1;
     for _, c in ipairs(components) do
-        local ctx = c.ctx;
-        if (ctx.settings.enabled) then
-            ctx.scale = scale;
-            if (c.mod.update) then c.mod.update(ctx, dt); end
-            if (c.mod.measure) then ctx.w, ctx.h = c.mod.measure(ctx); end
-            local x, y = place(c, scale);
-            ctx.x, ctx.y = x, y;
-            local w, h = c.mod.draw(r, ctx, x, y);
-            ctx.w, ctx.h = w or 0, h or 0;
-            ctx.hover = mouse_x >= x and mouse_x < x + ctx.w and mouse_y >= y and mouse_y < y + ctx.h;
+        if (not c.ctx.settings.enabled) then
+            -- disabled by a settings reload (e.g. character switch)
+            if (c.mod ~= nil) then unload(c); end
+        elseif (hidden(c, state)) then
+            c.shown, c.alpha, c.ctx.hover = false, 0, false;
+        elseif (load(c)) then
+            c.shown = true;
+            c.alpha = math.min(1, c.alpha + fade_step);
+            r.set_base_opacity(c.alpha);
+            draw_component(r, c, dt, scale);
+            r.set_base_opacity(1);
         end
     end
 
@@ -222,7 +373,7 @@ function hud.frame(r, dt, sw, sh, text)
     if (unlocked) then
         for _, c in ipairs(components) do
             local ctx = c.ctx;
-            if (ctx.settings.enabled and ctx.w > 0) then
+            if (c.shown and c.mod ~= nil and ctx.w > 0) then
                 local hot = ctx.hover or (drag ~= nil and drag.c == c);
                 local col = hot and 0xFFFFD860 or 0xC0FFFFFF;
                 r.rect(ctx.x, ctx.y, ctx.w, ctx.h, hot and 0x30FFD860 or 0x18FFFFFF);
@@ -235,7 +386,7 @@ function hud.frame(r, dt, sw, sh, text)
         if (text ~= nil) then
             for _, c in ipairs(components) do
                 local ctx = c.ctx;
-                if (ctx.settings.enabled and ctx.w > 0) then
+                if (c.shown and c.mod ~= nil and ctx.w > 0) then
                     local l = unlock_label[ctx.name];
                     if (l == nil) then
                         l = text.new({ text = ctx.name, size = 11 });
@@ -254,7 +405,7 @@ local function hit(x, y)
     for i = #components, 1, -1 do
         local c = components[i];
         local ctx = c.ctx;
-        if (ctx.settings and ctx.settings.enabled and ctx.w > 0
+        if (c.shown and c.mod ~= nil and ctx.w > 0
             and x >= ctx.x and x < ctx.x + ctx.w and y >= ctx.y and y < ctx.y + ctx.h) then
             return c;
         end
@@ -292,7 +443,9 @@ function hud.mouse(e)
         local c = captured[ev];
         if (c ~= nil) then
             captured[ev] = nil;
-            if (c.mod.mouse) then c.mod.mouse(c.ctx, ev, e.x - c.ctx.x, e.y - c.ctx.y, e); end
+            if (c.mod ~= nil and c.mod.mouse) then
+                guard(c, 'mouse', c.mod.mouse, c.ctx, ev, e.x - c.ctx.x, e.y - c.ctx.y, e);
+            end
             e.blocked = true;
         end
         return;
@@ -307,7 +460,9 @@ function hud.mouse(e)
         return;
     end
 
-    if (c.mod.mouse and c.mod.mouse(c.ctx, ev, e.x - c.ctx.x, e.y - c.ctx.y, e)) then
+    if (c.mod.mouse == nil) then return; end
+    local ok, consumed = guard(c, 'mouse', c.mod.mouse, c.ctx, ev, e.x - c.ctx.x, e.y - c.ctx.y, e);
+    if (ok and consumed) then
         if (UP_OF[ev] ~= nil) then captured[UP_OF[ev]] = c; end
         e.blocked = true;
     end
@@ -317,7 +472,7 @@ end
 
 function hud.shutdown()
     for _, c in ipairs(components) do
-        if (c.mod.destroy) then pcall(c.mod.destroy, c.ctx); end
+        if (c.mod ~= nil) then unload(c); end
     end
 end
 

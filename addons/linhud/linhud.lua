@@ -7,6 +7,7 @@ require('common');
 local d3d8     = require('d3d8');
 local ffi      = require('ffi');
 local settings = require('settings');
+local client   = require('game.client');
 local atlas    = require('ui.atlas');
 local hud      = require('ui.hud');
 local png      = require('ui.png');
@@ -14,15 +15,18 @@ local render   = require('ui.render');
 local text     = require('ui.text');
 local theme    = require('ui.theme');
 
--- components in paint order (later draws on top).
-local COMPONENTS = { 'party', 'target', 'demo' };
-for _, name in ipairs(COMPONENTS) do
-    hud.register(require('components.' .. name));
+-- components are required lazily, when first enabled (see ui/hud.lua).
+for _, c in ipairs(require('components.list')) do
+    hud.register(c.name, c.defaults);
 end
 
 local defaults = T{
     theme      = 'default',
     scale      = 1,
+    -- client states that hide the hud (see game/client.lua); components can
+    -- override each one in their own `hide` table.
+    hide       = T{ loading = true, event = true, interface = true, map = true, chat = true },
+    fade_in    = 0.15, -- seconds to fade back in once nothing hides it; 0 = pop in
     components = hud.defaults(),
 };
 
@@ -44,6 +48,7 @@ local qpf = ffi.new('int64_t[1]');
 ffi.C.QueryPerformanceFrequency(qpf);
 local ticks_per_ms = tonumber(qpf[0]) / 1000;
 local timing = { total = 0, frames = 0, worst = 0, avg = 0, max = 0, window = ticks(), last = ticks() };
+local ui_state = {}; -- client.poll output, reused every frame
 
 local function msg(fmt, ...)
     print(('\30\81[\30\06linhud\30\81]\30\01 ' .. fmt):format(...));
@@ -84,6 +89,19 @@ hud.on_save = function ()
     settings.save();
 end
 
+---a component failed and has been shut off: say so in chat, and keep the
+---full traceback in errors.log where it doesn't flood the chat log.
+hud.on_error = function (name, what, err, trace)
+    msg('\30\68%s failed (%s) and was turned off:\30\01 %s', name, what, err);
+    msg('details in errors.log; /linhud %s reload to try again', name);
+    ashita.fs.create_dir(user_dir());
+    local f = io.open(user_dir() .. '/errors.log', 'a');
+    if (f ~= nil) then
+        f:write(('[%s] %s %s\n%s\n\n'):format(os.date('%Y-%m-%d %H:%M:%S'), name, what, trace));
+        f:close();
+    end
+end
+
 settings.register('settings', 'settings_update', function (s)
     if (s ~= nil) then use_settings(s); end
 end);
@@ -94,6 +112,10 @@ ashita.events.register('load', 'load_cb', function ()
         addon.path:gsub('[\\/]+$', '') .. '/themes',
     };
     use_settings(settings.load(defaults));
+    local missing = client.missing();
+    if (#missing > 0) then
+        msg('couldn\'t find the client data for: %s; linhud won\'t hide for those', table.concat(missing, ', '));
+    end
 end);
 
 ashita.events.register('d3d_present', 'present_cb', function ()
@@ -108,7 +130,7 @@ ashita.events.register('d3d_present', 'present_cb', function ()
     local _, vp = d3d8.get_device():GetViewport();
     render.begin_frame();
     if (vp ~= nil) then
-        hud.frame(render, dt, vp.Width, vp.Height, text);
+        hud.frame(render, dt, vp.Width, vp.Height, text, client.poll(ui_state));
     end
     render.end_frame();
 
@@ -235,8 +257,34 @@ ashita.events.register('command', 'command_cb', function (e)
     -- Handle: /linhud list - Lists components and whether they're enabled.
     if (#args == 2 and args[2] == 'list') then
         for _, c in ipairs(hud.list()) do
-            msg('%s: %s', c.name, c.enabled and 'on' or 'off');
+            local state = c.failed and ('failed: ' .. c.failed) or (c.enabled and 'on' or 'off');
+            msg('%s: %s', c.name, state);
         end
+        return;
+    end
+
+    -- Handle: /linhud hide [condition] [on | off] - Shows or sets which client states hide the hud.
+    if (#args >= 2 and args[2] == 'hide') then
+        if (#args == 2) then
+            for _, cond in ipairs(client.CONDITIONS) do
+                msg('hide during %s: %s', cond, s.hide[cond] and 'on' or 'off');
+            end
+        elseif (not table.contains(client.CONDITIONS, args[3])) then
+            msg('condition must be one of: %s', table.concat(client.CONDITIONS, ', '));
+        else
+            local on = args[4] == 'on' or (args[4] ~= 'off' and not s.hide[args[3]]);
+            hud.set_hide(nil, args[3], on);
+            msg('hide during %s: %s', args[3], on and 'on' or 'off');
+        end
+        return;
+    end
+
+    -- Handle: /linhud state - Shows the client states the hud hides for, as currently read.
+    if (#args == 2 and args[2] == 'state') then
+        for _, cond in ipairs(client.CONDITIONS) do
+            msg('%s: %s', cond, ui_state[cond] and 'yes' or 'no');
+        end
+        msg('top menu: "%s"', client.menu_name());
         return;
     end
 
@@ -272,6 +320,40 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
+    -- Handle: /linhud <component> hide [condition] [on | off | default] - Overrides a hide condition for one component.
+    if (#args >= 3 and args[3] == 'hide' and hud.get(args[2]) ~= nil) then
+        local own = hud.get(args[2]).ctx.settings.hide or {};
+        local function describe(cond)
+            local v = own[cond];
+            if (v == nil) then return ('default (%s)'):format(s.hide[cond] and 'on' or 'off'); end
+            return v and 'on' or 'off';
+        end
+        if (#args == 3) then
+            for _, cond in ipairs(client.CONDITIONS) do
+                msg('%s hides during %s: %s', args[2], cond, describe(cond));
+            end
+        elseif (not table.contains(client.CONDITIONS, args[4])) then
+            msg('condition must be one of: %s', table.concat(client.CONDITIONS, ', '));
+        elseif (#args == 4) then
+            msg('%s hides during %s: %s', args[2], args[4], describe(args[4]));
+        elseif (args[5] == 'on' or args[5] == 'off' or args[5] == 'default') then
+            local on = nil;
+            if (args[5] ~= 'default') then on = args[5] == 'on'; end
+            hud.set_hide(args[2], args[4], on);
+            msg('%s hides during %s: %s', args[2], args[4], describe(args[4]));
+        else
+            msg('usage: /linhud %s hide <condition> on|off|default', args[2]);
+        end
+        return;
+    end
+
+    -- Handle: /linhud <component> reload - Re-requires a component's module (after an error or an edit).
+    if (#args == 3 and args[3] == 'reload' and hud.get(args[2]) ~= nil) then
+        hud.reload(args[2]);
+        msg('%s: reloaded', args[2]);
+        return;
+    end
+
     -- Handle: /linhud <component> [on | off] - Toggles or sets a component.
     if (#args >= 2 and hud.get(args[2]) ~= nil) then
         local c = hud.get(args[2]);
@@ -284,5 +366,5 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    msg('usage: /linhud <component> [on|off] | <component> grow <dir> | list | unlock | lock | theme [name] | scale <n> | stats | quads | dump');
+    msg('usage: /linhud <component> [on|off] | <component> grow <dir> | <component> reload | <component> hide [cond] [on|off|default] | hide [cond] [on|off] | state | list | unlock | lock | theme [name] | scale <n> | stats | quads | dump');
 end);

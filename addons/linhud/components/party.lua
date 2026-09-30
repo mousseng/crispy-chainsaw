@@ -18,10 +18,7 @@ local band, bor = bit.band, bit.bor;
 local POLL = 0.1;          -- seconds between party memory reads
 local FLAG_SYNC = 0x100;   -- member flag mask: level sync
 
-local party = {
-    name = 'party',
-    defaults = { enabled = true, anchor = 'left', x = 20, y = -120, grow_y = 'down', hide_solo = false },
-};
+local party = {}; -- settings defaults: components/list.lua
 
 -- reused member records, one per party slot.
 local members = {};

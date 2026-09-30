@@ -19,10 +19,7 @@ local band = bit.band;
 local POLL = 0.1;                      -- seconds between party reads
 local SPAWN_PC, SPAWN_MOB = 0x01, 0x10; -- entity spawn flags
 
-local target = {
-    name = 'target',
-    defaults = { enabled = true, anchor = 'top', x = 0, y = 80, grow_y = 'down' },
-};
+local target = {}; -- settings defaults: components/list.lua
 
 local function new_info()
     return {
