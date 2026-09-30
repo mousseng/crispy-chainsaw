@@ -7,6 +7,11 @@
 *   defaults  table of its settings (enabled, anchor, x, y are managed here)
 *   draw      fn(r, ctx, x, y) -> w, h   draws at screen (x, y); returns size
 *   update    fn(ctx, dt)                optional; game state, before draw
+*   measure   fn(ctx) -> w, h            optional; size this frame, before
+*                                        placing. without it placement uses
+*                                        last frame's size, so a component
+*                                        that appears or resizes is misplaced
+*                                        for one frame.
 *   mouse     fn(ctx, ev, x, y, e)       optional; ev = 'ldown' | 'lup' | 'rdown'
 *                                        | 'rup' | 'wheel', x/y relative to the
 *                                        component. return true to consume.
@@ -204,6 +209,7 @@ function hud.frame(r, dt, sw, sh, text)
         if (ctx.settings.enabled) then
             ctx.scale = scale;
             if (c.mod.update) then c.mod.update(ctx, dt); end
+            if (c.mod.measure) then ctx.w, ctx.h = c.mod.measure(ctx); end
             local x, y = place(c, scale);
             ctx.x, ctx.y = x, y;
             local w, h = c.mod.draw(r, ctx, x, y);

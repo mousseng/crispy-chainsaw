@@ -147,14 +147,22 @@ local function row_rect(ctx, i)
     return x, y, ctx.w, ROW_H * s;
 end
 
-function party.draw(r, ctx, x, y)
+function party.measure(ctx)
     if (count == 0 or (count == 1 and ctx.settings.hide_solo)) then
+        return 0, 0;
+    end
+    local s = ctx.scale;
+    return (PAD * 2 + ICON_W + HP_W + MP_W + TP_W + BAR_GAP * 2) * s,
+        (PAD * 2 + count * ROW_H + (count - 1) * ROW_GAP) * s;
+end
+
+function party.draw(r, ctx, x, y)
+    local w, h = party.measure(ctx);
+    if (w == 0) then
         return 0, 0;
     end
 
     local s, c = ctx.scale, theme.color;
-    local w = (PAD * 2 + ICON_W + HP_W + MP_W + TP_W + BAR_GAP * 2) * s;
-    local h = (PAD * 2 + count * ROW_H + (count - 1) * ROW_GAP) * s;
 
     r.nineslice('panel_shadow', x, y, w, h, c('shadow'));
     r.nineslice('panel', x, y, w, h, c('panel_bg'));

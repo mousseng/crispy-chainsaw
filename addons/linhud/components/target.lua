@@ -107,18 +107,24 @@ local W, PAD = 240, 8;
 local BAR_H, BAR_Y, NUM_Y, MAIN_H = 8, 17, 24, 38;
 local SUB_H, SUB_GAP, SUB_BAR_W, SUB_BAR_H, MARK_W = 18, 6, 64, 5, 14;
 
-function target.draw(r, ctx, x, y)
+function target.measure(ctx)
     local has_main, has_sub = main.index ~= 0, sub.index ~= 0;
     if (not has_main and not has_sub) then
         return 0, 0;
     end
-
-    local s, c = ctx.scale, theme.color;
-    local w = W * s;
     local h = PAD * 2;
     if (has_main) then h = h + MAIN_H; end
     if (has_sub) then h = h + SUB_H + (has_main and SUB_GAP or 0); end
-    h = h * s;
+    return W * ctx.scale, h * ctx.scale;
+end
+
+function target.draw(r, ctx, x, y)
+    local w, h = target.measure(ctx);
+    if (w == 0) then
+        return 0, 0;
+    end
+    local has_main, has_sub = main.index ~= 0, sub.index ~= 0;
+    local s, c = ctx.scale, theme.color;
 
     r.nineslice('panel_shadow', x, y, w, h, c('shadow'));
     r.nineslice('panel', x, y, w, h, c('panel_bg'));
