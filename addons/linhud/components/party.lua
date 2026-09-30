@@ -7,9 +7,11 @@
 * strings for numbers are rebuilt only when a value changes.
 --]]
 
-local bit   = require('bit');
-local text  = require('ui.text');
-local theme = require('ui.theme');
+local bit     = require('bit');
+local targets = require('game.targets');
+local text    = require('ui.text');
+local theme   = require('ui.theme');
+local widgets = require('ui.widgets');
 
 local band, bor = bit.band, bit.bor;
 
@@ -116,13 +118,7 @@ local function poll()
 end
 
 local function poll_targets()
-    local t = AshitaCore:GetMemoryManager():GetTarget();
-    if (t == nil) then
-        target_index, subtarget_index = 0, 0;
-    else
-        target_index = t:GetTargetIndex(0);
-        subtarget_index = t:GetIsSubTargetActive() ~= 0 and t:GetTargetIndex(1) or 0;
-    end
+    target_index, subtarget_index = targets.indices();
     cursor_slot = party_cursor();
 end
 
@@ -142,27 +138,7 @@ end
 local PAD, ICON_W, ROW_H, ROW_GAP = 8, 16, 40, 2;
 local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 17, 23;
 
----glow: colour of a glow around the bar, or nil for none. callers decide
----when (full tp, critical hp).
-local function bar(r, x, y, w, h, frac, color, glow)
-    local c = theme.color;
-    r.nineslice('bar_bg', x, y, w, h, c('bar_bg'));
-    if (frac > 0) then
-        r.push_clip(x, y, w * math.min(frac, 1), h);
-        r.nineslice('bar', x, y, w, h, color);
-        r.pop_clip();
-    end
-    if (glow ~= nil) then
-        r.nineslice('bar_glow', x, y, w, h, glow);
-    end
-    r.nineslice('bar_border', x, y, w, h, c('bar_border'));
-end
-
-local function hp_color(frac)
-    if (frac < 0.25) then return theme.color('hp_crit'); end
-    if (frac < 0.5) then return theme.color('hp_low'); end
-    return theme.color('hp');
-end
+local bar, hp_color = widgets.bar, widgets.hp_color;
 
 ---row geometry, shared by draw and mouse.
 local function row_rect(ctx, i)

@@ -32,6 +32,15 @@ return {
         alliance_lead = 0xFF5FA8FF,
         sync          = 0xFF9AE0A0,
 
+        -- target names, by what the target is / who has claim
+        name_party         = 0xFF8FD8FF,
+        name_player        = 0xFFF0F0F0,
+        name_npc           = 0xFF9AE0A0,
+        name_mob           = 0xFFF0E070,
+        name_claimed       = 0xFFFF7A6A,
+        name_claimed_other = 0xFFD08FE0,
+        target_lock        = 0xC0FF6A5A,
+
         text          = 0xFFF0F0F0,
         text_dim      = 0xFFA0A4AC,
     },
