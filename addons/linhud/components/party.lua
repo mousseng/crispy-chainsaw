@@ -142,7 +142,8 @@ end
 local PAD, ICON_W, ROW_H, ROW_GAP = 8, 16, 40, 2;
 local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 17, 23;
 
----glow: colour of the glow drawn when full, or nil for none.
+---glow: colour of a glow around the bar, or nil for none. callers decide
+---when (full tp, critical hp).
 local function bar(r, x, y, w, h, frac, color, glow)
     local c = theme.color;
     r.nineslice('bar_bg', x, y, w, h, c('bar_bg'));
@@ -151,7 +152,7 @@ local function bar(r, x, y, w, h, frac, color, glow)
         r.nineslice('bar', x, y, w, h, color);
         r.pop_clip();
     end
-    if (glow ~= nil and frac >= 1) then
+    if (glow ~= nil) then
         r.nineslice('bar_glow', x, y, w, h, glow);
     end
     r.nineslice('bar_border', x, y, w, h, c('bar_border'));
@@ -221,9 +222,10 @@ function party.draw(r, ctx, x, y)
 
         if (m.in_zone) then
             local hpc = hp_color(m.hpp);
-            bar(r, hx, by, HP_W * s, BAR_H * s, m.hpp, hpc);
+            -- critical hp glows red; not when dead, where it would just outline an empty bar.
+            bar(r, hx, by, HP_W * s, BAR_H * s, m.hpp, hpc, (m.hpp < 0.25 and m.hp > 0) and c('hp_crit') or nil);
             bar(r, mx, by, MP_W * s, BAR_H * s, m.mpp, c('mp'));
-            bar(r, tx, by, TP_W * s, BAR_H * s, math.min(m.tp, 1000) / 1000, m.tp >= 1000 and c('tp_full') or c('tp'), c('tp_full'));
+            bar(r, tx, by, TP_W * s, BAR_H * s, math.min(m.tp, 1000) / 1000, m.tp >= 1000 and c('tp_full') or c('tp'), m.tp >= 1000 and c('tp_full') or nil);
 
             m.hp_num = m.hp_num or text.number('number');
             m.mp_num = m.mp_num or text.number('number');
