@@ -26,6 +26,7 @@ return {
         target        = 0xFFFFFFFF,
         subtarget     = 0xFF7FC8FF,
         party_target  = 0xFFFFB060,
+        row_target    = 0x26FFFFFF,
 
         leader        = 0xFFFFD860,
         alliance_lead = 0xFFB0E0FF,
@@ -48,6 +49,9 @@ return {
     -- timers). each merges over `font`; `chars` limits what can be drawn.
     glyphs = {
         number = { size = 11, chars = '0123456789,.%/-+: ' },
+        -- job/level labels (e.g. WHM75/SCH37): only the letters job
+        -- abbreviations use.
+        job    = { size = 9, chars = 'ABCDEFGHIKLMNOPRSTUW0123456789/' },
     },
 
     slots = {

@@ -15,7 +15,7 @@ local text     = require('ui.text');
 local theme    = require('ui.theme');
 
 -- components in paint order (later draws on top).
-local COMPONENTS = { 'demo' };
+local COMPONENTS = { 'party', 'demo' };
 for _, name in ipairs(COMPONENTS) do
     hud.register(require('components.' .. name));
 end
