@@ -28,8 +28,9 @@ for i = 0, 5 do
         slot = i, active = false, name = '', in_zone = true, target_index = 0,
         hp = 0, hpp = 0, mp = 0, mpp = 0, tp = 0,
         hp_str = '', mp_str = '', tp_str = '', job_str = '',
+        zone_id = -1, zone_str = '',
         leader = false, alliance_leader = false, sync = false,
-        name_text = nil, hp_num = nil, mp_num = nil, tp_num = nil, job_num = nil,
+        name_text = nil, zone_text = nil, hp_num = nil, mp_num = nil, tp_num = nil, job_num = nil,
     };
 end
 local count = 0;
@@ -65,6 +66,14 @@ local function job_label(p, i)
     return s;
 end
 
+---zone name for out-of-zone members; looked up only when the zone changes.
+local function set_zone(m, zone)
+    if (m.zone_id == zone) then return; end
+    m.zone_id = zone;
+    local name = zone > 0 and AshitaCore:GetResourceManager():GetString('zones.names', zone) or nil;
+    m.zone_str = (name ~= nil and name ~= '') and name or '';
+end
+
 local function set_num(m, field, str_field, value)
     if (m[field] ~= value or m[str_field] == '') then
         m[field] = value;
@@ -89,7 +98,9 @@ local function poll()
             count = i + 1;
             local sid = p:GetMemberServerId(i);
             m.name = p:GetMemberName(i);
-            m.in_zone = p:GetMemberZone(i) == my_zone;
+            local zone = p:GetMemberZone(i);
+            m.in_zone = zone == my_zone;
+            set_zone(m, zone);
             m.target_index = m.in_zone and p:GetMemberTargetIndex(i) or 0;
             m.leader = sid ~= 0 and sid == party_leader;
             m.alliance_leader = in_alliance and sid ~= 0 and sid == alliance_leader;
@@ -227,15 +238,12 @@ function party.draw(r, ctx, x, y)
             m.mp_num:draw(mx + MP_W * s, ny, c('text'), 'right');
             m.tp_num:draw(tx + TP_W * s, ny, m.tp >= 1000 and c('tp_full') or c('text'), 'right');
             m.job_num:draw(tx + TP_W * s, ry + 3 * s, c('text_dim'), 'right');
-        else
-            bar(r, hx, by, HP_W * s, BAR_H * s, 0, 0);
-            bar(r, mx, by, MP_W * s, BAR_H * s, 0, 0);
-            bar(r, tx, by, TP_W * s, BAR_H * s, 0, 0);
         end
+        -- out of zone: the zone name replaces the bars (drawn in the text pass)
     end
 
-    -- names last (one gdifonts texture each), clipped so long names can't run
-    -- into the job label.
+    -- names and zone names last (one gdifonts texture each), clipped so long
+    -- names can't run into the job label.
     for i = 0, count - 1 do
         local m = members[i];
         local ry = y + (PAD + i * (ROW_H + ROW_GAP)) * s;
@@ -253,6 +261,14 @@ function party.draw(r, ctx, x, y)
         r.push_clip(hx, ry - 2 * s, (tx + TP_W * s) - hx - job_w - 6 * s, ROW_H * s);
         m.name_text:draw(hx, ry, color);
         r.pop_clip();
+
+        if (not m.in_zone and m.zone_str ~= '') then
+            m.zone_text = m.zone_text or text.new({ size = 12, bold = false });
+            m.zone_text:set(m.zone_str);
+            r.push_clip(hx, ry, (tx + TP_W * s) - hx, ROW_H * s);
+            m.zone_text:draw(hx, ry + (BAR_Y - 2) * s, c('text_dim'));
+            r.pop_clip();
+        end
     end
 
     return w, h;

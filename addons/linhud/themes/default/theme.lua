@@ -29,7 +29,7 @@ return {
         row_target    = 0x40FFFFFF,
 
         leader        = 0xFFFFD860,
-        alliance_lead = 0xFFB0E0FF,
+        alliance_lead = 0xFF5FA8FF,
         sync          = 0xFF9AE0A0,
 
         text          = 0xFFF0F0F0,
@@ -71,7 +71,7 @@ return {
         arrow_party          = { gen = 'arrow', width = 8, height = 10, dir = 'right' },
 
         mark_leader          = { gen = 'star', radius = 6, points = 5, inner = 0.45 },
-        mark_alliance_leader = { gen = 'star', radius = 6, points = 2, inner = 0.55 },
+        mark_alliance_leader = { gen = 'star', radius = 6, points = 5, inner = 0.45 },
         mark_sync            = { gen = 'circle', radius = 5, stroke = 1.5, fill = false },
     },
 };
