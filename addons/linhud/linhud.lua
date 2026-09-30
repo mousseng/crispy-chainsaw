@@ -4,14 +4,33 @@ addon.version = '0.1'
 addon.desc = 'performant HUD for ashita'
 
 require('common');
-local atlas = require('ui.atlas');
-local png   = require('ui.png');
-local theme = require('ui.theme');
+local ffi    = require('ffi');
+local atlas  = require('ui.atlas');
+local demo   = require('ui.demo');
+local png    = require('ui.png');
+local render = require('ui.render');
+local theme  = require('ui.theme');
 
 local linhud = {
     theme = 'default',
     scale = 1,
+    demo  = false,
 };
+
+-- frame cost, averaged over the last second.
+pcall(ffi.cdef, [[
+    int QueryPerformanceCounter(int64_t* count);
+    int QueryPerformanceFrequency(int64_t* freq);
+]]);
+local qpc = ffi.new('int64_t[1]');
+local function ticks()
+    ffi.C.QueryPerformanceCounter(qpc);
+    return tonumber(qpc[0]);
+end
+local qpf = ffi.new('int64_t[1]');
+ffi.C.QueryPerformanceFrequency(qpf);
+local ticks_per_ms = tonumber(qpf[0]) / 1000;
+local timing = { total = 0, frames = 0, avg = 0, window = ticks() };
 
 local function msg(fmt, ...)
     print(('\30\81[\30\06linhud\30\81]\30\01 ' .. fmt):format(...));
@@ -37,6 +56,26 @@ ashita.events.register('load', 'load_cb', function ()
         addon.path:gsub('[\\/]+$', '') .. '/themes',
     };
     apply_theme(linhud.theme, linhud.scale);
+end);
+
+ashita.events.register('d3d_present', 'present_cb', function ()
+    if (theme.texture() == nil) then
+        return;
+    end
+
+    local t0 = ticks();
+    render.begin_frame();
+    if (linhud.demo) then
+        demo.draw(render, 200, 200, os.clock());
+    end
+    render.end_frame();
+
+    local t1 = ticks();
+    timing.total, timing.frames = timing.total + (t1 - t0), timing.frames + 1;
+    if (t1 - timing.window >= ticks_per_ms * 1000) then
+        timing.avg = timing.total / timing.frames / ticks_per_ms;
+        timing.total, timing.frames, timing.window = 0, 0, t1;
+    end
 end);
 
 ashita.events.register('unload', 'unload_cb', function ()
@@ -71,6 +110,20 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
+    -- Handle: /linhud demo - Toggles the renderer demo.
+    if (#args == 2 and args[2] == 'demo') then
+        linhud.demo = not linhud.demo;
+        msg('demo: %s', linhud.demo and 'on' or 'off');
+        return;
+    end
+
+    -- Handle: /linhud stats - Shows renderer cost for the last frame.
+    if (#args == 2 and args[2] == 'stats') then
+        local st = render.stats();
+        msg('%d quads, %d draw calls, %.3f ms/frame cpu (1s avg)', st.quads, st.calls, timing.avg);
+        return;
+    end
+
     -- Handle: /linhud dump - Saves the theme atlas to a png for inspection.
     if (#args == 2 and args[2] == 'dump') then
         local tex = theme.texture();
@@ -97,5 +150,5 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    msg('usage: /linhud theme [name] | scale <n> | dump');
+    msg('usage: /linhud theme [name] | scale <n> | demo | stats | dump');
 end);

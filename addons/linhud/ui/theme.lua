@@ -14,6 +14,7 @@
 
 local atlas = require('ui.atlas');
 local gen   = require('ui.gen');
+local image = require('ui.image');
 
 local theme = {};
 
@@ -217,6 +218,12 @@ function theme.build(name, scale)
             warn('no usable source for slot "%s"', slot);
         end
     end
+
+    -- solid white texels for untextured fills, so they batch with everything else.
+    local white = image.new(4, 4);
+    for i = 0, 15 do white.px[i] = 0xFFFFFFFF; end
+    items[#items + 1] = { name = '_white', img = white };
+    slots._white = { type = 'sprite', pivot = { 0, 0 }, density = scale, tint = true };
 
     local sheet, regions = atlas.pack(items);
     for slot, meta in pairs(slots) do
