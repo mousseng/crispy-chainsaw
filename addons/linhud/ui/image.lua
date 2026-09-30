@@ -29,8 +29,9 @@ end
 ---@param x integer
 ---@param y integer
 ---@param argb integer
+---argb may be a signed bit-op result; it's wrapped to unsigned (see set_alpha).
 function image:set(x, y, argb)
-    self.px[y * self.w + x] = argb;
+    self.px[y * self.w + x] = argb % 4294967296;
 end
 
 ---@return integer
@@ -44,7 +45,7 @@ end
 function image:set_alpha(x, y, a)
     if (a < 0) then a = 0; end
     if (a > 1) then a = 1; end
-    self.px[y * self.w + x] = bit.bor(bit.lshift(math.floor(a * 255 + 0.5), 24), 0x00FFFFFF);
+    self.px[y * self.w + x] = bit.bor(bit.lshift(math.floor(a * 255 + 0.5), 24), 0x00FFFFFF) % 4294967296;
 end
 
 ---copies src into this image at (dx, dy). no blending.

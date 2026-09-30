@@ -225,7 +225,7 @@ local function build_set(ctx, name, cfg)
                     for p = 0, whole.w * whole.h - 1 do
                         local a = rshift(whole.px[p], 24);
                         if (a > 0) then
-                            outline_layer.px[p] = bit.bor(bit.lshift(a, 24), outline_rgb);
+                            outline_layer.px[p] = bit.bor(bit.lshift(a, 24), outline_rgb) % 4294967296; -- unsigned; see render.lua set_vertex
                         end
                     end
                 end

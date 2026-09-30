@@ -83,7 +83,10 @@ end
 
 local function set_vertex(v, x, y, u, vv, c)
     v.x, v.y, v.z, v.rhw = x - 0.5, y - 0.5, 0, 1; -- d3d8 texel/pixel centre alignment
-    v.color, v.u, v.v = c, u, vv;
+    -- bit ops return signed int32, so colours with alpha >= 0x80 arrive negative.
+    -- negative -> uint32_t is undefined in ffi and 32-bit luajit (what ashita
+    -- runs) really does mangle it once traces compile. wrap into 0..2^32-1.
+    v.color, v.u, v.v = c % 4294967296, u, vv;
 end
 
 ---appends one axis-aligned quad. colours are per corner (tl, tr, bl, br).
