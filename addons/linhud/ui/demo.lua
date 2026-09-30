@@ -1,6 +1,7 @@
 --[[
-* renderer demo: a mock party list exercising every slot, clipping, gradients
-* and opacity. toggled with `/linhud demo`; also rasterised by the offline tests.
+* renderer demo: a mock party list exercising every slot, clipping, gradients,
+* opacity and text. toggled with `/linhud demo`; the offline tests rasterise it
+* without text (no gdifonts outside the game).
 --]]
 
 local theme = require('ui.theme');
@@ -8,9 +9,9 @@ local theme = require('ui.theme');
 local demo = {};
 
 local members = {
-    { hp = 0.92, mp = 0.64, tp = 0.35, leader = true },
-    { hp = 0.48, mp = 0.81, tp = 1.00, alliance = true },
-    { hp = 0.18, mp = 0.20, tp = 0.72, sync = true },
+    { name = 'Lin',      max_hp = 1420, hp = 0.92, mp = 0.64, tp = 0.35, leader = true },
+    { name = 'Rhoswen',  max_hp = 2210, hp = 0.48, mp = 0.81, tp = 1.00, alliance = true },
+    { name = 'Tarutaru', max_hp = 860,  hp = 0.18, mp = 0.20, tp = 0.72, sync = true },
 };
 
 ---bar background, fill clipped to `frac` (keeps the chamfer on the far end
@@ -39,23 +40,32 @@ end
 ---@param x number
 ---@param y number
 ---@param t number seconds, animates the bars so it's obviously live
-function demo.draw(r, x, y, t)
+---@param txt table|nil the text module (omitted offline)
+---@return number w, number h the panel's size
+function demo.draw(r, x, y, t, txt)
     local s = theme.active().scale;
     local c = theme.color;
-    local row_h, bar_w, bar_h, gap = 26 * s, 90 * s, 8 * s, 6 * s;
+    local row_h, bar_w, bar_h, gap = 34 * s, 90 * s, 8 * s, 6 * s;
     local pad = 12 * s;
     local w = pad * 2 + 22 * s + bar_w * 3 + gap * 2;
     local h = pad * 2 + row_h * #members;
+
+    -- hp moves in steps at 4hz, roughly like server updates.
+    local tick = math.floor(t * 4) / 4;
 
     r.nineslice('panel_shadow', x, y, w, h, c('shadow'));
     r.nineslice('panel', x, y, w, h, c('panel_bg'));
     r.rect(x + 1, y + 1, w - 2, 10 * s, 0x18FFFFFF, 0x00FFFFFF); -- sheen gradient
     r.nineslice('panel_border', x, y, w, h, c('panel_border'));
 
+    -- atlas pass first, text after, so the whole panel is one draw call
+    -- followed by one per text object.
+    local labels = {};
     for i, m in ipairs(members) do
         local ry = y + pad + (i - 1) * row_h;
-        local cy = ry + row_h * 0.5;
-        local wave = 0.5 + 0.5 * math.sin(t * 1.3 + i);
+        local by = ry + row_h - bar_h - 6 * s;
+        local cy = by + bar_h * 0.5;
+        local wave = 0.5 + 0.5 * math.sin(tick * 1.3 + i);
 
         if (i == 2) then
             r.sprite('arrow_party', x - 4 * s, cy, c('party_target'));
@@ -64,17 +74,35 @@ function demo.draw(r, x, y, t)
         if (m.alliance) then r.sprite('mark_alliance_leader', x + pad + 7 * s, cy, c('alliance_lead')); end
         if (m.sync) then r.sprite('mark_sync', x + pad + 7 * s, cy, c('sync')); end
 
-        local bx, by = x + pad + 22 * s, cy - bar_h * 0.5;
+        local bx = x + pad + 22 * s;
         local hp = math.max(0.02, m.hp * (0.85 + 0.15 * wave));
         bar(r, bx, by, bar_w, bar_h, hp, hp_color(hp));
         bar(r, bx + bar_w + gap, by, bar_w, bar_h, m.mp, c('mp'));
         bar(r, bx + (bar_w + gap) * 2, by, bar_w, bar_h, m.tp, m.tp >= 1 and c('tp_full') or c('tp'));
+
+        labels[i] = { bx = bx, ty = ry, hp = math.floor(m.max_hp * hp), hp_frac = hp };
     end
 
     -- target marker above the panel, fading in and out.
     r.set_opacity(0.6 + 0.4 * math.sin(t * 3));
     r.sprite('arrow_target', x + w * 0.5, y - 6 * s, c('target'));
     r.set_opacity(1);
+
+    if (txt == nil) then return w, h; end
+
+    -- numbers come from the atlas glyph set, so they join the batch above;
+    -- names are gdifonts textures and cost a draw call each.
+    for i, m in ipairs(members) do
+        local l = labels[i];
+        m.hp_text = m.hp_text or txt.number('number');
+        m.hp_text:set(tostring(l.hp));
+        m.hp_text:draw(l.bx + bar_w, l.ty + 1 * s, hp_color(l.hp_frac), 'right');
+    end
+    for i, m in ipairs(members) do
+        m.name_text = m.name_text or txt.new({ text = m.name });
+        m.name_text:draw(labels[i].bx, labels[i].ty, c('text'));
+    end
+    return w, h;
 end
 
 return demo;

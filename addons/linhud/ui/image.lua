@@ -55,6 +55,15 @@ function image:blit(src, dx, dy)
     end
 end
 
+---returns a copy of the w x h region at (x, y).
+function image:sub(x, y, w, h)
+    local out = image.new(w, h);
+    for row = 0, h - 1 do
+        ffi.copy(out.px + row * w, self.px + (y + row) * self.w + x, w * 4);
+    end
+    return out;
+end
+
 ---fills every pixel by evaluating fn(px, py) -> coverage at pixel centres.
 function image:fill(fn)
     for y = 0, self.h - 1 do

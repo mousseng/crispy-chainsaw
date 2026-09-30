@@ -40,6 +40,12 @@ theme.SLOTS = {
     mark_sync            = 'sprite',
 };
 
+---named functions that add generated images to the atlas at build time, e.g.
+---text glyphs. each is called as fn(ctx) with ctx = { font, glyphs, scale, add }
+---where add(name, img, meta) registers a region; the return value is kept and
+---available from theme.extra(name).
+theme.providers = {};
+
 local current = nil;
 
 local function warn(fmt, ...)
@@ -183,7 +189,7 @@ function theme.build(name, scale)
         return nil, err;
     end
 
-    local palette, font, candidates = {}, {}, {};
+    local palette, font, glyphs, candidates = {}, {}, {}, {};
     for i = #chain, 1, -1 do -- base first so derived themes win
         local def = chain[i];
         for k, v in pairs(def.palette or {}) do
@@ -195,6 +201,10 @@ function theme.build(name, scale)
             end
         end
         for k, v in pairs(def.font or {}) do font[k] = v; end
+        for set, cfg in pairs(def.glyphs or {}) do
+            glyphs[set] = glyphs[set] or {};
+            for k, v in pairs(cfg) do glyphs[set][k] = v; end
+        end
         for slot, spec in pairs(def.slots or {}) do
             candidates[slot] = candidates[slot] or {};
             table.insert(candidates[slot], 1, { spec = spec, def = def });
@@ -219,6 +229,23 @@ function theme.build(name, scale)
         end
     end
 
+    local extra = {};
+    local ctx = {
+        font = font, glyphs = glyphs, scale = scale,
+        add = function (name, img, meta)
+            items[#items + 1] = { name = name, img = img };
+            slots[name] = meta;
+        end,
+    };
+    for key, fn in pairs(theme.providers) do
+        local ok, res = pcall(fn, ctx);
+        if (ok) then
+            extra[key] = res;
+        else
+            warn('%s failed: %s', key, tostring(res));
+        end
+    end
+
     -- solid white texels for untextured fills, so they batch with everything else.
     local white = image.new(4, 4);
     for i = 0, 15 do white.px[i] = 0xFFFFFFFF; end
@@ -230,7 +257,7 @@ function theme.build(name, scale)
         meta.region = regions[slot];
     end
 
-    return { name = name, scale = scale, palette = palette, font = font, slots = slots, sheet = sheet };
+    return { name = name, scale = scale, palette = palette, font = font, glyphs = glyphs, slots = slots, extra = extra, sheet = sheet };
 end
 
 --[[ active theme ]]--
@@ -250,6 +277,7 @@ function theme.apply(name, scale)
         return false, tex;
     end
 
+    built.sheet_w, built.sheet_h = built.sheet.w, built.sheet.h;
     built.sheet = nil; -- cpu copy no longer needed
     built.texture = tex;
     theme.release();
@@ -272,6 +300,11 @@ end
 ---@return integer argb (opaque magenta if missing, so it's obvious)
 function theme.color(name)
     return current and current.palette[name] or 0xFFFF00FF;
+end
+
+---data returned by a named provider for the active theme.
+function theme.extra(key)
+    return current and current.extra[key];
 end
 
 function theme.font()

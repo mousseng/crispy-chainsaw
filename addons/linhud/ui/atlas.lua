@@ -119,6 +119,9 @@ function atlas.read(tex)
     if (dres ~= C.S_OK) then
         return nil, d3d8.get_error(dres);
     end
+    if (desc.Format ~= C.D3DFMT_A8R8G8B8) then
+        return nil, ('unsupported texture format %d'):format(tonumber(desc.Format));
+    end
     local lres, lock = tex:LockRect(0, nil, 0x10); -- D3DLOCK_READONLY
     if (lres ~= C.S_OK) then
         return nil, d3d8.get_error(lres);

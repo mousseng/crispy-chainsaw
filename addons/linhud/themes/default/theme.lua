@@ -35,13 +35,19 @@ return {
         text_dim      = 0xFFA0A4AC,
     },
 
-    -- passed through to gdifonts.
+    -- mapped onto gdifonts settings by ui/text.lua. sizes are logical pixels.
     font = {
         family  = 'Arial',
         size    = 12,
-        weight  = 600,
+        bold    = true,
         outline = 2,
         outline_color = 0xFF000000,
+    },
+
+    -- glyph sets pre-rendered into the atlas for fast-changing values (hp, tp,
+    -- timers). each merges over `font`; `chars` limits what can be drawn.
+    glyphs = {
+        number = { size = 11, chars = '0123456789,.%/-+: ' },
     },
 
     slots = {

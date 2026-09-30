@@ -234,13 +234,57 @@ function render.sprite(name, x, y, color, scale)
     return w, h;
 end
 
+local ALIGN = { left = 0, center = 0.5, right = 1 };
+
+---width of a string in a glyph set, in screen pixels.
+function render.glyphs_width(set, str)
+    local w, g = 0, set.glyphs;
+    for i = 1, #str do
+        local gl = g[str:byte(i)];
+        if (gl ~= nil) then w = w + gl.adv; end
+    end
+    return w + set.pad;
+end
+
+local function glyph_pass(tex, set, str, x, y, c, which)
+    local g = set.glyphs;
+    for i = 1, #str do
+        local gl = g[str:byte(i)];
+        if (gl ~= nil) then
+            local meta = gl[which];
+            if (meta ~= nil) then
+                local r, gx = meta.region, x + gl.off;
+                emit(tex, gx, y, gx + r.w, y + r.h, r.u0, r.v0, r.u1, r.v1, c, c, c, c);
+            end
+            x = x + gl.adv;
+        end
+    end
+end
+
+---draws a string from an atlas glyph set (see ui/text.lua) with its anchor at
+---(x, y). all outlines go down before any fill so neighbouring glyphs never
+---cover each other. the fill is tinted by color; outlines keep their colour.
+---@return number w, number h
+function render.glyphs(set, str, x, y, color, align)
+    local w = render.glyphs_width(set, str);
+    x, y = round(x - w * (ALIGN[align or 'left'] or 0)), round(y);
+    local tex = theme.texture();
+    local c = color or 0xFFFFFFFF;
+    if (set.outline) then
+        glyph_pass(tex, set, str, x, y, bor(band(c, 0xFF000000), 0x00FFFFFF), 'outline');
+    end
+    glyph_pass(tex, set, str, x, y, c, 'fill');
+    return w, set.height;
+end
+
 -- texture sizes for text, keyed weakly by texture so they go when fonts do.
 local tex_dims = setmetatable({}, { __mode = 'k' });
 
----draws a gdifonts object (manual mode) with its top-left at (x, y). the
----font renders its own colours, so `color` only contributes alpha.
+---draws a gdifonts object (manual mode) with its top-left at (x, y). with
+---`tint`, color multiplies the glyphs (render them white); otherwise only its
+---alpha applies and the font's baked colours show as-is.
 ---@return number w, number h
-function render.text(font, x, y, alpha)
+function render.text(font, x, y, color, tint)
     local tex, rect = font:get_texture();
     if (tex == nil) then return 0, 0; end
 
@@ -253,7 +297,8 @@ function render.text(font, x, y, alpha)
     end
 
     local w, h = rect.right, rect.bottom;
-    local c = bor(lshift(floor((alpha or 1) * 255 + 0.5), 24), 0x00FFFFFF);
+    local c = color or 0xFFFFFFFF;
+    if (not tint) then c = bor(band(c, 0xFF000000), 0x00FFFFFF); end
     x, y = round(x), round(y);
     emit(tex, x, y, x + w, y + h, 0, 0, w / dims[1], h / dims[2], c, c, c, c);
     return w, h;
