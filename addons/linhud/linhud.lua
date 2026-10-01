@@ -263,7 +263,6 @@ ashita.events.register('command', 'command_cb', function (e)
     -- Handle: /linhud (unlock | lock) - Toggles moving components with the mouse.
     if (#args == 2 and (args[2] == 'unlock' or args[2] == 'lock')) then
         hud.set_unlocked(args[2] == 'unlock');
-        msg(args[2] == 'unlock' and 'unlocked: drag components to move them; /linhud lock when done' or 'locked');
         return;
     end
 
@@ -389,7 +388,6 @@ ashita.events.register('command', 'command_cb', function (e)
         elseif (args[3] == 'off') then on = false;
         else on = not c.ctx.settings.enabled; end
         hud.set_enabled(args[2], on);
-        msg('%s: %s', args[2], on and 'on' or 'off');
         return;
     end
 
