@@ -9,6 +9,7 @@
 return {
     palette = {
         panel_bg      = 0xD8101318,
+        popup_bg      = 0xF4101318, -- tooltips and menus, over busier things
         panel_border  = 0x40FFFFFF,
         shadow        = 0x80000000,
         glow          = 0xC0FFD878,
@@ -44,6 +45,11 @@ return {
 
         text          = 0xFFF0F0F0,
         text_dim      = 0xFFA0A4AC,
+        accent        = 0xFF8FC0FF,
+        hover         = 0x30FFFFFF,
+
+        -- inventory item cells
+        cell_bg       = 0x18FFFFFF,
     },
 
     -- mapped onto gdifonts settings by ui/text.lua. sizes are logical pixels.
@@ -64,6 +70,9 @@ return {
         job    = { size = 10, chars = 'ABCDEFGHIKLMNOPRSTUW0123456789/' },
         -- exp bar: "12,345 / 21,000" and "8,400/hr".
         exp    = { size = 12, chars = '0123456789,./hr ' },
+        -- inventory: stack counts on icons, and gil / space used.
+        count  = { size = 10, chars = '0123456789' },
+        inv    = { size = 12, chars = '0123456789,/ gil' },
     },
 
     slots = {
@@ -90,5 +99,8 @@ return {
         mark_alliance_leader = { gen = 'star', radius = 6, points = 5, inner = 0.45 },
         mark_sync            = { gen = 'circle', radius = 5, stroke = 1.5, fill = false },
         dot                  = { gen = 'circle', radius = 1.5 },
+
+        -- inventory item cells
+        cell                 = { gen = 'rounded_rect', radius = 3 },
     },
 };

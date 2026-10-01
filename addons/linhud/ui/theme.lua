@@ -42,6 +42,7 @@ theme.SLOTS = {
     mark_alliance_leader = 'sprite',
     mark_sync            = 'sprite',
     dot                  = 'sprite',
+    cell                 = 'nineslice',
 };
 
 ---named functions that add generated images to the atlas at build time, e.g.

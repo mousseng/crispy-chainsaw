@@ -31,8 +31,12 @@
 * carries on. `enable` or `reload` clears the failure and tries again.
 *
 * ctx is a per-component table: { name, settings, scale, x, y, w, h, hover,
-* screen_w, screen_h }.
+* screen_w, screen_h, mouse_x, mouse_y } (mouse in screen pixels).
 * components may keep their own fields on it; it is replaced on each load.
+* ctx.modal is read back: a component sets it while it has something open
+* (a popup menu) that every button press should go to, wherever it lands, so
+* the popup can be used outside the component's own area and a click
+* elsewhere closes it instead of reaching the game or another component.
 * ctx.settings is rebound when ashita reloads settings (e.g. on character
 * switch), so components must read it through ctx each time, never cache it.
 *
@@ -315,6 +319,7 @@ end
 local function draw_component(r, c, dt, scale)
     local mod, ctx = c.mod, c.ctx;
     ctx.scale, ctx.screen_w, ctx.screen_h = scale, screen_w, screen_h;
+    ctx.mouse_x, ctx.mouse_y = mouse_x, mouse_y;
     if (mod.update and not guard(c, 'update', mod.update, ctx, dt)) then return; end
     if (mod.measure) then
         local ok, w, h = guard(c, 'measure', mod.measure, ctx);
@@ -371,6 +376,7 @@ function hud.frame(r, dt, sw, sh, text, state)
             c.shown = false;
         elseif (hidden(c, state)) then
             c.shown, c.alpha, c.ctx.hover = false, 0, false;
+            c.ctx.modal = nil;
         else
             c.shown = true;
             c.alpha = math.min(1, c.alpha + fade_step);
@@ -413,6 +419,10 @@ end
 --[[ mouse ]]--
 
 local function hit(x, y)
+    for i = #components, 1, -1 do
+        local c = components[i];
+        if (c.shown and c.mod ~= nil and c.ctx.modal) then return c; end
+    end
     for i = #components, 1, -1 do
         local c = components[i];
         local ctx = c.ctx;

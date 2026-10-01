@@ -153,7 +153,7 @@ function exp.draw(r, ctx, x, y)
     r.sprite('dot', cx, cy, c('text_dim'));
     r.push_clip(x + l, y, w - l - rr, h);
     ratio_num:draw(cx - GAP * s, ty, c('text'), 'right');
-    rate_num:draw(cx + GAP * s, ty, c('text_dim'));
+    rate_num:draw(cx + GAP * s, ty, c('text'));
     r.pop_clip();
 
     return w, h;

@@ -398,9 +398,20 @@ local function build_states()
 end
 
 local saved_rs, saved_tss = {}, {};
+local hooks = {};
+
+---fn() runs at the start of every end_frame, before anything is submitted
+---(e.g. to write textures the frame's quads use).
+function render.before_submit(fn)
+    for _, h in ipairs(hooks) do
+        if (h == fn) then return; end
+    end
+    hooks[#hooks + 1] = fn;
+end
 
 ---submits the frame's quads. call once per frame from d3d_present.
 function render.end_frame()
+    for i = 1, #hooks do hooks[i](); end
     last_stats.quads, last_stats.calls = nquads, ncmds;
     if (nquads == 0) then return; end
 
