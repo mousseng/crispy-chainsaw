@@ -16,6 +16,13 @@
 *   mouse     fn(ctx, ev, x, y, e)       optional; ev = 'ldown' | 'lup' | 'rdown'
 *                                        | 'rup' | 'wheel', x/y relative to the
 *                                        component. return true to consume.
+*   packet_in fn(ctx, e)                 optional; every incoming packet (ashita's
+*                                        packet_in event), even while hidden.
+*                                        check e.id first; this runs a lot.
+*   command   fn(ctx, args) -> handled, message
+*                                        optional; `/linhud <name> ...` args the
+*                                        hud doesn't handle itself. settings
+*                                        are saved after a handled command.
 *   destroy   fn(ctx)                    optional; called before the module is
 *                                        dropped (disabled, reloaded, failed)
 *
@@ -23,7 +30,8 @@
 * component is shut off (hud.on_error reports it) and the rest of the hud
 * carries on. `enable` or `reload` clears the failure and tries again.
 *
-* ctx is a per-component table: { name, settings, scale, x, y, w, h, hover }.
+* ctx is a per-component table: { name, settings, scale, x, y, w, h, hover,
+* screen_w, screen_h }.
 * components may keep their own fields on it; it is replaced on each load.
 * ctx.settings is rebound when ashita reloads settings (e.g. on character
 * switch), so components must read it through ctx each time, never cache it.
@@ -37,7 +45,8 @@
 * hud; a component's own `hide` table overrides single conditions. hidden
 * components vanish at once (so they never sit on top of the game's own
 * interface) and fade back in over settings.fade_in seconds. while hidden they
-* skip update and draw and don't take the mouse.
+* skip update and draw and don't take the mouse, but stay loaded and keep
+* receiving packets.
 *
 * grow_x / grow_y pick which edge stays put when a component changes size
 * (x: 'right' | 'left' | 'center', y: 'down' | 'up' | 'center'). 'auto' follows
@@ -305,7 +314,7 @@ end
 ---shut off by then).
 local function draw_component(r, c, dt, scale)
     local mod, ctx = c.mod, c.ctx;
-    ctx.scale = scale;
+    ctx.scale, ctx.screen_w, ctx.screen_h = scale, screen_w, screen_h;
     if (mod.update and not guard(c, 'update', mod.update, ctx, dt)) then return; end
     if (mod.measure) then
         local ok, w, h = guard(c, 'measure', mod.measure, ctx);
@@ -358,9 +367,11 @@ function hud.frame(r, dt, sw, sh, text, state)
         if (not c.ctx.settings.enabled) then
             -- disabled by a settings reload (e.g. character switch)
             if (c.mod ~= nil) then unload(c); end
+        elseif (not load(c)) then
+            c.shown = false;
         elseif (hidden(c, state)) then
             c.shown, c.alpha, c.ctx.hover = false, 0, false;
-        elseif (load(c)) then
+        else
             c.shown = true;
             c.alpha = math.min(1, c.alpha + fade_step);
             r.set_base_opacity(c.alpha);
@@ -465,6 +476,31 @@ function hud.mouse(e)
     if (ok and consumed) then
         if (UP_OF[ev] ~= nil) then captured[UP_OF[ev]] = c; end
         e.blocked = true;
+    end
+end
+
+--[[ commands ]]--
+
+---passes a command to the component (which must be enabled, so it's loaded).
+---@return boolean handled
+---@return string|nil message to show
+function hud.command(name, args)
+    local c = by_name[name];
+    if (c == nil or c.mod == nil or c.mod.command == nil) then return false; end
+    local ok, handled, message = guard(c, 'command', c.mod.command, c.ctx, args);
+    if (ok and handled and hud.on_save) then hud.on_save(); end
+    return ok and handled or false, message;
+end
+
+--[[ packets ]]--
+
+---routes ashita's packet_in event to loaded components that handle packets.
+function hud.packet_in(e)
+    for _, c in ipairs(components) do
+        local mod = c.mod;
+        if (mod ~= nil and mod.packet_in ~= nil) then
+            guard(c, 'packet_in', mod.packet_in, c.ctx, e);
+        end
     end
 end
 

@@ -149,6 +149,10 @@ ashita.events.register('mouse', 'mouse_cb', function (e)
     hud.mouse(e);
 end);
 
+ashita.events.register('packet_in', 'packet_in_cb', function (e)
+    hud.packet_in(e);
+end);
+
 ashita.events.register('unload', 'unload_cb', function ()
     hud.shutdown();
     text.shutdown();
@@ -352,6 +356,15 @@ ashita.events.register('command', 'command_cb', function (e)
         hud.reload(args[2]);
         msg('%s: reloaded', args[2]);
         return;
+    end
+
+    -- Handle: /linhud <component> <args...> - Commands a component handles itself (e.g. exp width).
+    if (#args >= 3 and args[3] ~= 'on' and args[3] ~= 'off' and hud.get(args[2]) ~= nil) then
+        local handled, message = hud.command(args[2], { select(3, unpack(args)) });
+        if (handled) then
+            if (message ~= nil) then msg('%s', message); end
+            return;
+        end
     end
 
     -- Handle: /linhud <component> [on | off] - Toggles or sets a component.

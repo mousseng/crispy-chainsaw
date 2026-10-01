@@ -33,12 +33,15 @@ theme.SLOTS = {
     bar_bg               = 'nineslice',
     bar_border           = 'nineslice',
     bar_glow             = 'outset',
+    tab                  = 'nineslice',
+    tab_border           = 'nineslice',
     arrow_target         = 'sprite',
     arrow_subtarget      = 'sprite',
     arrow_party          = 'sprite',
     mark_leader          = 'sprite',
     mark_alliance_leader = 'sprite',
     mark_sync            = 'sprite',
+    dot                  = 'sprite',
 };
 
 ---named functions that add generated images to the atlas at build time, e.g.

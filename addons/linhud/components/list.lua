@@ -9,6 +9,7 @@
 --]]
 
 return {
+    { name = 'exp',    defaults = { enabled = true, anchor = 'top', x = 0, y = 0, width = 640 } },
     { name = 'party',  defaults = { enabled = true, anchor = 'left', x = 20, y = -120, grow_y = 'down', hide_solo = false } },
     { name = 'target', defaults = { enabled = true, anchor = 'top', x = 0, y = 80, grow_y = 'down' } },
     { name = 'demo',   defaults = { enabled = false, anchor = 'topleft', x = 200, y = 200 } },

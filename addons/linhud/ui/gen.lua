@@ -124,6 +124,29 @@ function gen.chamfer_rect(spec, scale)
     return img, { type = 'nineslice', slice = { m, m, m, m } };
 end
 
+---a trapezoid, long side down: tabs docked to a screen edge (draw it flipped
+---for the top edge). spec: height, slant (how far in the short side's ends
+---sit), stroke, fill.
+---
+---only the ends are fixed; the middle stretches to any width. there are no
+---fixed rows, so the texture is exactly `height` tall and should be drawn at
+---that height (render.slot_size) - stretched, its slants would change angle.
+function gen.trapezoid(spec, scale)
+    local h  = math.floor((spec.height or 18) * scale + 0.5);
+    local sl = (spec.slant or 12) * scale;
+    local sw = (spec.stroke or 0) * scale;
+    local fill = spec.fill ~= false;
+
+    local m = ceil(sl + sw) + 1;
+    local w = m * 2 + 2;
+    local verts = { { 0, h }, { sl, 0 }, { w - sl, 0 }, { w, h } };
+
+    local img = image.new(w, h):fill(function (x, y)
+        return shade(sd_polygon(x, y, verts), fill, sw);
+    end);
+    return img, { type = 'nineslice', slice = { m, 0, m, 0 } };
+end
+
 ---soft shadow around a rounded or chamfered rect. drawn behind the element,
 ---extended by `outset` on every side.
 ---spec: radius | corner, blur (falloff distance), knockout (clear the interior

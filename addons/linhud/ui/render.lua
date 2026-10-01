@@ -213,8 +213,9 @@ local function nine_row(tex, y0, y1, v0, v1, x0, x1, x2, x3, u0, u1, u2, u3, c)
 end
 
 ---draws a nineslice or outset slot stretched to the rect. outset slots extend
----beyond the rect by their outset (shadows, glows).
-function render.nineslice(name, x, y, w, h, color)
+---beyond the rect by their outset (shadows, glows). flip mirrors it top to
+---bottom (e.g. a tab docked to the top of the screen instead of the bottom).
+function render.nineslice(name, x, y, w, h, color, flip)
     local meta = theme.slot(name);
     if (meta == nil) then return; end
     local tex, r = theme.texture(), meta.region;
@@ -237,10 +238,33 @@ function render.nineslice(name, x, y, w, h, color)
     local u0, u1, u2, u3 = r.u0, r.u0 + sl * du, r.u1 - sr * du, r.u1;
     local y0, y1_, y2, y3 = y, y + t, y + h - b, y + h;
     local v0, v1, v2, v3 = r.v0, r.v0 + st * dv, r.v1 - sb * dv, r.v1;
+    if (flip) then
+        -- the bottom edge's texels go on top, sized as the bottom edge
+        y1_, y2 = y + b, y + h - t;
+        v0, v1, v2, v3 = v3, v2, v1, v0;
+    end
 
     nine_row(tex, y0, y1_, v0, v1, x0, x1_, x2, x3, u0, u1, u2, u3, c);
     nine_row(tex, y1_, y2, v1, v2, x0, x1_, x2, x3, u0, u1, u2, u3, c);
     nine_row(tex, y2, y3, v2, v3, x0, x1_, x2, x3, u0, u1, u2, u3, c);
+end
+
+---a nineslice slot's fixed edges (left, top, right, bottom) in screen
+---pixels, e.g. to keep text clear of a shape's corners.
+function render.slot_edges(name)
+    local meta = theme.slot(name);
+    if (meta == nil or meta.slice == nil) then return 0, 0, 0, 0; end
+    local k = theme.active().scale / meta.density;
+    local sl = meta.slice;
+    return sl[1] * k, sl[2] * k, sl[3] * k, sl[4] * k;
+end
+
+---a slot's natural size in screen pixels (its texture at the current scale).
+function render.slot_size(name)
+    local meta = theme.slot(name);
+    if (meta == nil) then return 0, 0; end
+    local k = theme.active().scale / meta.density;
+    return meta.region.w * k, meta.region.h * k;
 end
 
 ---draws a sprite slot with its pivot at (x, y). returns the drawn size.

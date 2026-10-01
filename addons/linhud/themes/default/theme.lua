@@ -22,6 +22,7 @@ return {
         tp            = 0xFF5FA2E0,
         tp_full       = 0xFF9CD2FF,
         pet           = 0xFFC08FE0,
+        exp           = 0xFFB89AF0,
 
         target        = 0xFFFFFFFF,
         subtarget     = 0xFF7FC8FF,
@@ -61,6 +62,8 @@ return {
         -- job/level labels (e.g. WHM75/SCH37): only the letters job
         -- abbreviations use.
         job    = { size = 10, chars = 'ABCDEFGHIKLMNOPRSTUW0123456789/' },
+        -- exp bar: "12,345 / 21,000" and "8,400/hr".
+        exp    = { size = 12, chars = '0123456789,./hr ' },
     },
 
     slots = {
@@ -75,6 +78,10 @@ return {
         bar_border           = { gen = 'chamfer_rect', corner = 3, stroke = 1, fill = false },
         bar_glow             = { gen = 'glow', shape = 'chamfer', corner = 3, blur = 5 },
 
+        -- edge-docked tabs (the exp bar). long side down; drawn flipped at the top.
+        tab                  = { gen = 'trapezoid', height = 18, slant = 14 },
+        tab_border           = { gen = 'trapezoid', height = 18, slant = 14, stroke = 1, fill = false },
+
         arrow_target         = { gen = 'arrow', width = 14, height = 9, dir = 'down' },
         arrow_subtarget      = { gen = 'arrow', width = 10, height = 7, dir = 'down' },
         arrow_party          = { gen = 'arrow', width = 8, height = 10, dir = 'right' },
@@ -82,5 +89,6 @@ return {
         mark_leader          = { gen = 'star', radius = 6, points = 5, inner = 0.45 },
         mark_alliance_leader = { gen = 'star', radius = 6, points = 5, inner = 0.45 },
         mark_sync            = { gen = 'circle', radius = 5, stroke = 1.5, fill = false },
+        dot                  = { gen = 'circle', radius = 1.5 },
     },
 };
