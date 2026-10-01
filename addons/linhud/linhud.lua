@@ -8,12 +8,16 @@ local d3d8     = require('d3d8');
 local ffi      = require('ffi');
 local settings = require('settings');
 local client   = require('game.client');
+local jitlog   = require('diag.jitlog');
 local atlas    = require('ui.atlas');
 local hud      = require('ui.hud');
 local png      = require('ui.png');
 local render   = require('ui.render');
 local text     = require('ui.text');
 local theme    = require('ui.theme');
+
+-- before anything gets hot, so no trace attempt is missed (see diag/jitlog.lua).
+jitlog.start();
 
 -- components are required lazily, when first enabled (see ui/hud.lua).
 for _, c in ipairs(require('components.list')) do
@@ -47,7 +51,12 @@ end
 local qpf = ffi.new('int64_t[1]');
 ffi.C.QueryPerformanceFrequency(qpf);
 local ticks_per_ms = tonumber(qpf[0]) / 1000;
-local timing = { total = 0, frames = 0, worst = 0, avg = 0, max = 0, window = ticks(), last = ticks() };
+-- build: components' update and draw (lua, filling the vertex array);
+-- submit: render.end_frame (icon uploads and the d3d calls).
+local timing = {
+    total = 0, frames = 0, worst = 0, avg = 0, max = 0, window = ticks(), last = ticks(),
+    build = 0, submit = 0, build_avg = 0, submit_avg = 0,
+};
 local ui_state = {}; -- client.poll output, reused every frame
 
 local function msg(fmt, ...)
@@ -132,16 +141,20 @@ ashita.events.register('d3d_present', 'present_cb', function ()
     if (vp ~= nil) then
         hud.frame(render, dt, vp.Width, vp.Height, text, client.poll(ui_state));
     end
+    local tb = ticks();
     render.end_frame();
 
     local t1 = ticks();
     local cost = t1 - t0;
     timing.total, timing.frames = timing.total + cost, timing.frames + 1;
+    timing.build, timing.submit = timing.build + (tb - t0), timing.submit + (t1 - tb);
     if (cost > timing.worst) then timing.worst = cost; end
     if (t1 - timing.window >= ticks_per_ms * 1000) then
-        timing.avg = timing.total / timing.frames / ticks_per_ms;
+        local per = timing.frames * ticks_per_ms;
+        timing.avg, timing.build_avg, timing.submit_avg = timing.total / per, timing.build / per, timing.submit / per;
         timing.max = timing.worst / ticks_per_ms;
         timing.total, timing.frames, timing.worst, timing.window = 0, 0, 0, t1;
+        timing.build, timing.submit = 0, 0;
     end
 end);
 
@@ -154,6 +167,7 @@ ashita.events.register('packet_in', 'packet_in_cb', function (e)
 end);
 
 ashita.events.register('unload', 'unload_cb', function ()
+    jitlog.stop();
     hud.shutdown();
     if (package.loaded['ui.icons'] ~= nil) then package.loaded['ui.icons'].release(); end
     text.shutdown();
@@ -304,10 +318,24 @@ ashita.events.register('command', 'command_cb', function (e)
     if (#args == 2 and args[2] == 'stats') then
         local st = render.stats();
         msg('%d quads, %d draw calls, cpu %.3f ms avg / %.3f ms worst (last 1s)', st.quads, st.calls, timing.avg, timing.max);
+        msg('  build %.3f ms (update + draw), submit %.3f ms (uploads + d3d calls)', timing.build_avg, timing.submit_avg);
         local icons = package.loaded['ui.icons'];
         if (icons ~= nil) then
             local is = icons.stats();
             msg('icons: %d / %d cells used, %d decoded, %d evicted, %d failed', is.used, is.cells, is.decoded, is.evicted, is.failed);
+        end
+        return;
+    end
+
+    -- Handle: /linhud jit - Writes which code luajit couldn't compile, and why.
+    if (#args == 2 and args[2] == 'jit') then
+        local path = ('%s/jit.txt'):format(user_dir());
+        ashita.fs.create_dir(user_dir());
+        local aborts, traces = jitlog.write(path);
+        if (aborts == nil) then
+            msg('failed to save: %s', traces);
+        else
+            msg('saved %s (%d aborts, %d compiled traces)', path, aborts, traces);
         end
         return;
     end
