@@ -20,7 +20,7 @@ return {
         hp_low        = 0xFFE0C050,
         hp_crit       = 0xFFE05A4A,
         mp            = 0xFFE0C35F,
-        tp            = 0xFF5FA2E0,
+        tp            = 0xFFFFFFFF, -- white until 1000, so a ready weaponskill (tp_full) stands out
         tp_full       = 0xFF9CD2FF,
         pet           = 0xFFC08FE0,
         exp           = 0xFFB89AF0,
