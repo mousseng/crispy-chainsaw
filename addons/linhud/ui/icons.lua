@@ -1,21 +1,25 @@
 --[[
-* icon atlas: the game's 32x32 item icons, decoded on demand into one texture
-* so a screenful of them is a single draw call.
+* icon atlases: the game's 32x32 item and status icons, decoded on demand into
+* one texture per kind, so a screenful of them is a single draw call.
 *
-* the sheet is a fixed grid of cells (32px plus a 1px copy of each icon's own
+* each sheet is a fixed grid of cells (32px plus a 1px copy of each icon's own
 * edge, so filtering never samples a neighbour), filled as icons are first
 * drawn. nothing is ever repacked: a new icon is decoded from the client's
 * resource data and written into its cell alone, and d3d re-uploads only the
-* rows that changed. once every cell is taken, the icon drawn least recently
-* gives up its cell. the sheet holds more icons than any one view shows (all
-* eight wardrobes are 640), so that's rare.
+* rows that changed.
+*
+* the item sheet evicts: once every cell is taken, the icon drawn least
+* recently gives up its cell. it holds more icons than any one view shows
+* (all eight wardrobes are 640), so that's rare. the status sheet is
+* append-only: it has a cell for every status the client has icons for
+* (ids run to 0x3FF, fewer than a thousand of them exist), so it never fills.
 *
 * icons requested during a frame are written at the end of it, before the
-* frame is submitted, at most BUDGET per frame; the rest come in over the
-* next few frames rather than all at once in one long one.
+* frame is submitted, at most BUDGET per sheet per frame; the rest come in
+* over the next few frames rather than all at once in one long one.
 *
-* the texture is made the first time an icon is asked for, so nothing is
-* spent until something draws icons.
+* a sheet's texture is made the first time one of its icons is asked for, so
+* nothing is spent until something draws icons.
 --]]
 
 local ffi = require('ffi');
@@ -31,20 +35,9 @@ local CELL   = SIZE + 2;
 local SHEET  = 1024;
 local COLS   = floor(SHEET / CELL);
 local NCELLS = COLS * COLS;
-local BUDGET = 96; -- icons decoded per frame
+local BUDGET = 96; -- icons decoded per sheet per frame
 
-local tex = nil;
-local key_cell  = {}; -- key -> cell (0-based), or false if it can't be decoded
-local cell_key  = {}; -- cell -> key
-local cell_used = {}; -- cell -> frame it was last drawn
-local next_cell = 0;
-local frame     = 0;
-
--- this frame's new icons: cells and their bitmaps, as parallel arrays.
-local p_cell, p_src = {}, {};
-local npending = 0;
-
-local stats = { decoded = 0, evicted = 0, failed = 0 };
+local frame = 0;
 
 --[[ decoding ]]--
 
@@ -145,7 +138,7 @@ end
 ---decodes an icon into a CELL x CELL block at dst (stride in pixels): the
 ---icon at (1, 1), its edge pixels copied once outward. on failure the block
 ---is cleared.
----@param s string the client's bitmap data (IItem.Bitmap)
+---@param s string the client's bitmap data (IItem.Bitmap, IStatusIcon.Bitmap)
 ---@param dst ffi.cdata* uint32_t*
 ---@return boolean ok
 ---@return string|nil error
@@ -166,19 +159,19 @@ function icons.decode(s, dst, stride)
     return true;
 end
 
---[[ texture ]]--
+--[[ sheets ]]--
 
-local function create()
+local function create(name)
     local d3d8 = require('d3d8');
     local C = ffi.C;
     local res, t = d3d8.get_device():CreateTexture(SHEET, SHEET, 1, 0, C.D3DFMT_A8R8G8B8, C.D3DPOOL_MANAGED);
     if (res ~= C.S_OK) then
-        error(('icons: CreateTexture failed: %s'):format(d3d8.get_error(res)));
+        error(('icons (%s): CreateTexture failed: %s'):format(name, d3d8.get_error(res)));
     end
     local lres, lock = t:LockRect(0, nil, 0);
     if (lres ~= C.S_OK) then
         t:Release();
-        error(('icons: LockRect failed: %s'):format(d3d8.get_error(lres)));
+        error(('icons (%s): LockRect failed: %s'):format(name, d3d8.get_error(lres)));
     end
     for y = 0, SHEET - 1 do
         ffi.fill(ffi.cast('uint8_t*', lock.pBits) + y * lock.Pitch, SHEET * 4);
@@ -187,106 +180,142 @@ local function create()
     return t;
 end
 
----the least recently drawn cell not drawn this frame, or nil.
-local function evict()
-    local best, oldest = nil, frame;
-    for cell = 0, NCELLS - 1 do
-        local used = cell_used[cell];
-        if (used < oldest) then best, oldest = cell, used; end
-    end
-    if (best ~= nil) then
-        key_cell[cell_key[best]] = nil;
-        stats.evicted = stats.evicted + 1;
-    end
-    return best;
-end
-
 local function cell_uv(cell)
     local x, y = (cell % COLS) * CELL + 1, floor(cell / COLS) * CELL + 1;
     return x / SHEET, y / SHEET, (x + SIZE) / SHEET, (y + SIZE) / SHEET;
 end
 
+local Sheet = {};
+Sheet.__index = Sheet;
+
+---@param evicts boolean whether a full sheet gives up its least recently drawn cell
+local function new_sheet(name, evicts)
+    local sh = setmetatable({ name = name, evicts = evicts }, Sheet);
+    sh:reset();
+    return sh;
+end
+
+function Sheet:reset()
+    if (self.tex ~= nil) then self.tex:Release(); end
+    self.tex = nil;
+    self.key_cell  = {}; -- key -> cell (0-based), or false if it can't be decoded
+    self.cell_key  = {}; -- cell -> key
+    self.cell_used = {}; -- cell -> frame it was last drawn
+    self.next_cell = 0;
+    -- this frame's new icons: cells and their bitmaps, as parallel arrays.
+    self.p_cell, self.p_src, self.npending = {}, {}, 0;
+    self.stats = { decoded = 0, evicted = 0, failed = 0 };
+    for c = 0, NCELLS - 1 do self.cell_used[c] = -1; end
+end
+
+---the least recently drawn cell not drawn this frame, or nil.
+function Sheet:evict()
+    local best, oldest = nil, frame;
+    for cell = 0, NCELLS - 1 do
+        local used = self.cell_used[cell];
+        if (used < oldest) then best, oldest = cell, used; end
+    end
+    if (best ~= nil) then
+        self.key_cell[self.cell_key[best]] = nil;
+        self.stats.evicted = self.stats.evicted + 1;
+    end
+    return best;
+end
+
 ---writes this frame's new icons into the sheet: one lock spanning the rows
 ---they're in.
-local function flush()
-    if (npending == 0) then return; end
+function Sheet:flush()
+    local n = self.npending;
+    if (n == 0) then return; end
+    local p_cell, p_src, key_cell, cell_key, cell_used = self.p_cell, self.p_src, self.key_cell, self.cell_key, self.cell_used;
     local top, bottom = SHEET, 0;
-    for i = 1, npending do
+    for i = 1, n do
         local y = floor(p_cell[i] / COLS) * CELL;
         if (y < top) then top = y; end
         if (y + CELL > bottom) then bottom = y + CELL; end
     end
 
     local rect = ffi.new('RECT', { 0, top, COLS * CELL, bottom });
-    local res, lock = tex:LockRect(0, rect, 0);
+    local res, lock = self.tex:LockRect(0, rect, 0);
     if (res == ffi.C.S_OK) then
         local base, pitch = ffi.cast('uint8_t*', lock.pBits), lock.Pitch;
-        for i = 1, npending do
+        for i = 1, n do
             local cell = p_cell[i];
             local x, y = (cell % COLS) * CELL, floor(cell / COLS) * CELL - top;
             local dst = ffi.cast('uint32_t*', base + y * pitch) + x;
             local ok = icons.decode(p_src[i], dst, pitch / 4);
             if (ok) then
-                stats.decoded = stats.decoded + 1;
+                self.stats.decoded = self.stats.decoded + 1;
             else
                 -- leave the (cleared) cell to whoever's next; the key stays
                 -- marked so it isn't tried again.
                 key_cell[cell_key[cell]] = false;
                 cell_key[cell], cell_used[cell] = nil, -1;
-                stats.failed = stats.failed + 1;
+                self.stats.failed = self.stats.failed + 1;
             end
         end
-        tex:UnlockRect(0);
+        self.tex:UnlockRect(0);
     else
         -- try again next frame
-        for i = 1, npending do
+        for i = 1, n do
             local cell = p_cell[i];
             key_cell[cell_key[cell]] = nil;
             cell_key[cell], cell_used[cell] = nil, -1;
         end
     end
-    for i = 1, npending do p_src[i] = nil; end
-    npending = 0;
+    for i = 1, n do p_src[i] = nil; end
+    self.npending = 0;
 end
 
 ---finds or allocates the cell for key; bitmap() supplies its data when it
 ---isn't in the sheet yet.
 ---@return integer|nil cell
-local function lookup(key, bitmap)
-    local cell = key_cell[key];
+function Sheet:lookup(key, bitmap)
+    local cell = self.key_cell[key];
     if (cell == false) then return nil; end
     if (cell ~= nil) then
-        cell_used[cell] = frame;
+        self.cell_used[cell] = frame;
         return cell;
     end
-    if (npending >= BUDGET) then return nil; end
+    if (self.npending >= BUDGET) then return nil; end
 
     local src = bitmap();
     if (src == nil) then
-        key_cell[key] = false;
+        self.key_cell[key] = false;
         return nil;
     end
-    if (tex == nil) then tex = create(); end
+    if (self.tex == nil) then self.tex = create(self.name); end
 
     -- fresh cells first; once they're gone, one freed by a failed decode,
-    -- then the least recently drawn.
+    -- then (if this sheet evicts) the least recently drawn.
     cell = nil;
-    if (next_cell < NCELLS) then
-        cell = next_cell;
-        next_cell = next_cell + 1;
+    if (self.next_cell < NCELLS) then
+        cell = self.next_cell;
+        self.next_cell = cell + 1;
     else
         for c = 0, NCELLS - 1 do
-            if (cell_key[c] == nil) then cell = c; break; end
+            if (self.cell_key[c] == nil) then cell = c; break; end
         end
-        cell = cell or evict();
-        if (cell == nil) then return nil; end -- every icon is on screen
+        if (cell == nil and self.evicts) then cell = self:evict(); end
+        if (cell == nil) then return nil; end -- full (or every icon is on screen)
     end
 
-    key_cell[key], cell_key[cell], cell_used[cell] = cell, key, frame;
-    npending = npending + 1;
-    p_cell[npending], p_src[npending] = cell, src;
+    self.key_cell[key], self.cell_key[cell], self.cell_used[cell] = cell, key, frame;
+    local n = self.npending + 1;
+    self.npending = n;
+    self.p_cell[n], self.p_src[n] = cell, src;
     return cell;
 end
+
+function Sheet:draw(r, cell, x, y, size, color)
+    local u0, v0, u1, v1 = cell_uv(cell);
+    r.image(self.tex, x, y, size, size, color, u0, v0, u1, v1);
+end
+
+local sheets = {
+    items  = new_sheet('items', true),
+    status = new_sheet('status', false),
+};
 
 --[[ api ]]--
 
@@ -296,44 +325,60 @@ local resource = nil;
 ---available (yet: new icons can take a frame or two to arrive).
 ---@return boolean drawn
 function icons.item(r, id, x, y, size, color)
-    local cell = lookup(id, function ()
+    local sh = sheets.items;
+    local cell = sh:lookup(id, function ()
         resource = resource or AshitaCore:GetResourceManager();
         local item = resource:GetItemById(id);
         return item and item.Bitmap or nil;
     end);
     if (cell == nil) then return false; end
-    local u0, v0, u1, v1 = cell_uv(cell);
-    r.image(tex, x, y, size, size, color, u0, v0, u1, v1);
+    sh:draw(r, cell, x, y, size, color);
     return true;
 end
 
----writes the frame's new icons into the sheet. the renderer calls this just
+---draws a status effect's icon (by buff id) at (x, y), size px square.
+---returns false if it isn't available (yet).
+---@return boolean drawn
+function icons.status(r, id, x, y, size, color)
+    local sh = sheets.status;
+    local cell = sh:lookup(id, function ()
+        resource = resource or AshitaCore:GetResourceManager();
+        local icon = resource:GetStatusIconByIndex(id);
+        return icon and icon.Bitmap or nil;
+    end);
+    if (cell == nil) then return false; end
+    sh:draw(r, cell, x, y, size, color);
+    return true;
+end
+
+---writes the frame's new icons into the sheets. the renderer calls this just
 ---before submitting each frame.
 function icons.end_frame()
-    flush();
+    sheets.items:flush();
+    sheets.status:flush();
     frame = frame + 1;
 end
 
+---@param which string|nil 'items' (default) or 'status'
 ---@return table { cells, used, decoded, evicted, failed }
-function icons.stats()
-    stats.cells, stats.used = NCELLS, math.min(next_cell, NCELLS);
-    return stats;
+function icons.stats(which)
+    local sh = sheets[which or 'items'];
+    local st = sh.stats;
+    st.cells, st.used = NCELLS, math.min(sh.next_cell, NCELLS);
+    return st;
 end
 
----the sheet's texture (nil until the first icon), for debug dumps.
-function icons.texture()
-    return tex;
+---a sheet's texture (nil until its first icon), for debug dumps.
+---@param which string|nil 'items' (default) or 'status'
+function icons.texture(which)
+    return sheets[which or 'items'].tex;
 end
 
 function icons.release()
-    if (tex ~= nil) then tex:Release(); end
-    tex = nil;
-    key_cell, cell_key, next_cell, npending = {}, {}, 0, 0;
-    for c = 0, NCELLS - 1 do cell_used[c] = -1; end
-    for i = #p_src, 1, -1 do p_cell[i], p_src[i] = nil, nil; end
+    sheets.items:reset();
+    sheets.status:reset();
 end
 
-for c = 0, NCELLS - 1 do cell_used[c] = -1; end
 require('ui.render').before_submit(icons.end_frame);
 
 return icons;

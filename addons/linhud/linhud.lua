@@ -216,8 +216,9 @@ end
 local function write_atlas(which)
     local icons = package.loaded['ui.icons'];
     local tex = theme.texture();
-    if (which == 'icons') then
-        tex = icons and icons.texture();
+    local sheet = which == 'icons' and 'items' or which;
+    if (sheet ~= nil) then
+        tex = icons and icons.texture(sheet);
         if (tex == nil) then
             msg('no icons loaded yet');
             return;
@@ -232,7 +233,7 @@ local function write_atlas(which)
         msg('failed to read atlas: %s', err);
         return;
     end
-    local path = which == 'icons' and ('%s/atlas_icons.png'):format(user_dir())
+    local path = which ~= nil and ('%s/atlas_%s.png'):format(user_dir(), which)
         or ('%s/atlas_%s.png'):format(user_dir(), linhud.settings.theme);
     ashita.fs.create_dir(user_dir());
     local f, ferr = io.open(path, 'wb');
@@ -321,8 +322,10 @@ ashita.events.register('command', 'command_cb', function (e)
         msg('  build %.3f ms (update + draw), submit %.3f ms (uploads + d3d calls)', timing.build_avg, timing.submit_avg);
         local icons = package.loaded['ui.icons'];
         if (icons ~= nil) then
-            local is = icons.stats();
+            local is = icons.stats('items');
             msg('icons: %d / %d cells used, %d decoded, %d evicted, %d failed', is.used, is.cells, is.decoded, is.evicted, is.failed);
+            local ss = icons.stats('status');
+            msg('status icons: %d / %d cells used, %d decoded, %d failed', ss.used, ss.cells, ss.decoded, ss.failed);
         end
         return;
     end
@@ -346,8 +349,8 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Handle: /linhud dump [icons] - Saves the theme atlas (or the item icon atlas) to a png for inspection.
-    if ((#args == 2 or (#args == 3 and args[3] == 'icons')) and args[2] == 'dump') then
+    -- Handle: /linhud dump [icons | status] - Saves the theme atlas (or an icon atlas) to a png for inspection.
+    if ((#args == 2 or (#args == 3 and (args[3] == 'icons' or args[3] == 'status'))) and args[2] == 'dump') then
         write_atlas(args[3]);
         return;
     end
@@ -419,5 +422,5 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    msg('usage: /linhud <component> [on|off] | <component> grow <dir> | <component> reload | <component> hide [cond] [on|off|default] | hide [cond] [on|off] | state | list | unlock | lock | theme [name] | scale <n> | stats | quads | dump [icons]');
+    msg('usage: /linhud <component> [on|off] | <component> grow <dir> | <component> reload | <component> hide [cond] [on|off|default] | hide [cond] [on|off] | state | list | unlock | lock | theme [name] | scale <n> | stats | quads | dump [icons|status]');
 end);

@@ -1,22 +1,37 @@
 --[[
-* party list: the main party's members with hp/mp/tp, job, leader/sync marks
-* and target indicators. left-clicking a member targets them.
+* party list: the main party's members with hp/mp/tp, job, leader/sync marks,
+* status effects and target indicators. left-clicking a member targets them.
 *
 * party memory is read at 10hz (it only changes when packets arrive); target
 * state is read every frame so highlights follow the cursor immediately.
 * strings for numbers are rebuilt only when a value changes.
+*
+* status icons sit under a member's bars, wrapping onto as many lines as they
+* need up to settings.status_lines (`/linhud party status <n>`; 0 hides
+* them); any past that are left off. a member with none takes no extra room.
 --]]
 
 local bit     = require('bit');
 local targets = require('game.targets');
+local icons   = require('ui.icons');
 local text    = require('ui.text');
 local theme   = require('ui.theme');
 local widgets = require('ui.widgets');
 
-local band, bor = bit.band, bit.bor;
+local band, bor, rshift = bit.band, bit.bor, bit.rshift;
+local floor, ceil, min = math.floor, math.ceil, math.min;
+local read_u8, read_u32 = ashita.memory.read_uint8, ashita.memory.read_uint32;
 
 local POLL = 0.1;          -- seconds between party memory reads
 local FLAG_SYNC = 0x100;   -- member flag mask: level sync
+local MAX_STATUS = 32;     -- status effects the client tracks per member
+local NO_STATUS = 255;     -- an empty status slot
+
+-- the other members' status effects (the player's own are in IPlayer): five
+-- 0x30-byte entries, in no particular order, each a server id, the high two
+-- bits of each of 32 status ids packed into 8 bytes at +8, and their low
+-- bytes at +16.
+local status_ptr = AshitaCore:GetPointerManager():Get('party.statusicons');
 
 local party = {}; -- settings defaults: components/list.lua
 
@@ -29,6 +44,7 @@ for i = 0, 5 do
         hp_str = '', mp_str = '', tp_str = '', job_str = '',
         zone_id = -1, zone_str = '',
         leader = false, alliance_leader = false, sync = false,
+        status = {}, nstatus = 0, status_lines = 0,
         name_text = nil, zone_text = nil, hp_num = nil, mp_num = nil, tp_num = nil, job_num = nil,
     };
 end
@@ -80,6 +96,41 @@ local function set_num(m, field, str_field, value)
     end
 end
 
+local function read_player_status(m)
+    local buffs = AshitaCore:GetMemoryManager():GetPlayer():GetBuffs();
+    local n = 0;
+    for k = 1, MAX_STATUS do
+        local id = buffs[k];
+        if (id ~= nil and id >= 0 and id ~= NO_STATUS) then
+            n = n + 1;
+            m.status[n] = id;
+        end
+    end
+    m.nstatus = n;
+end
+
+local function read_member_status(m, sid)
+    m.nstatus = 0;
+    if (status_ptr == nil or status_ptr == 0 or sid == 0) then return; end
+    local base = read_u32(status_ptr);
+    if (base == 0) then return; end
+    for e = base, base + 4 * 0x30, 0x30 do
+        if (read_u32(e) == sid) then
+            local n, hi = 0, 0;
+            for b = 0, MAX_STATUS - 1 do
+                if (b % 4 == 0) then hi = read_u8(e + 8 + rshift(b, 2)); end
+                local id = band(rshift(hi, (b % 4) * 2), 3) * 256 + read_u8(e + 16 + b);
+                if (id ~= NO_STATUS) then
+                    n = n + 1;
+                    m.status[n] = id;
+                end
+            end
+            m.nstatus = n;
+            return;
+        end
+    end
+end
+
 local function poll()
     local p = AshitaCore:GetMemoryManager():GetParty();
     if (p == nil) then count = 0; return; end
@@ -110,6 +161,13 @@ local function poll()
             m.hpp = p:GetMemberHPPercent(i) / 100;
             m.mpp = p:GetMemberMPPercent(i) / 100;
             m.job_str = m.in_zone and job_label(p, i) or '';
+            if (i == 0) then
+                read_player_status(m);
+            elseif (m.in_zone) then
+                read_member_status(m, sid);
+            else
+                m.nstatus = 0; -- only reported for members in our zone
+            end
         end
     end
 end
@@ -134,14 +192,33 @@ end
 -- under the bars (as ffxiv does), so nothing has to share a line with a number.
 local PAD, ICON_W, ROW_H, ROW_GAP = 8, 16, 40, 2;
 local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 17, 23;
+-- status icons: lines of them under the bars, as wide as the bars.
+local STATUS_S, STATUS_GAP, STATUS_Y = 16, 2, ROW_H - 1;
+local PER_LINE = floor((HP_W + MP_W + TP_W + BAR_GAP * 2 + STATUS_GAP) / (STATUS_S + STATUS_GAP));
 
 local bar, hp_color = widgets.bar, widgets.hp_color;
+
+-- each row's top and height in logical pixels, from the panel's top; rows
+-- grow to fit their status icons. set by layout().
+local row_y, row_h = {}, {};
+
+---lays the rows out. returns the panel's logical height.
+local function layout(ctx)
+    local max_lines = ctx.settings.status_lines or 2;
+    local y = PAD;
+    for i = 0, count - 1 do
+        local m = members[i];
+        m.status_lines = min(ceil(m.nstatus / PER_LINE), max_lines);
+        row_y[i], row_h[i] = y, ROW_H + m.status_lines * (STATUS_S + STATUS_GAP);
+        y = y + row_h[i] + ROW_GAP;
+    end
+    return y - ROW_GAP + PAD;
+end
 
 ---row geometry, shared by draw and mouse.
 local function row_rect(ctx, i)
     local s = ctx.scale;
-    local x, y = ctx.x, ctx.y + (PAD + i * (ROW_H + ROW_GAP)) * s;
-    return x, y, ctx.w, ROW_H * s;
+    return ctx.x, ctx.y + row_y[i] * s, ctx.w, row_h[i] * s;
 end
 
 function party.measure(ctx)
@@ -149,8 +226,19 @@ function party.measure(ctx)
         return 0, 0;
     end
     local s = ctx.scale;
-    return (PAD * 2 + ICON_W + HP_W + MP_W + TP_W + BAR_GAP * 2) * s,
-        (PAD * 2 + count * ROW_H + (count - 1) * ROW_GAP) * s;
+    return (PAD * 2 + ICON_W + HP_W + MP_W + TP_W + BAR_GAP * 2) * s, layout(ctx) * s;
+end
+
+function party.command(ctx, args)
+    if (args[1] ~= 'status') then return false; end
+    local n = tonumber(args[2]);
+    if (args[2] ~= nil) then
+        if (n == nil or n < 0) then
+            return true, 'status lines must be a number, 0 or more';
+        end
+        ctx.settings.status_lines = floor(n);
+    end
+    return true, ('party status lines: %d (%d icons each)'):format(ctx.settings.status_lines or 2, PER_LINE);
 end
 
 function party.draw(r, ctx, x, y)
@@ -172,14 +260,14 @@ function party.draw(r, ctx, x, y)
     -- atlas pass: everything but names, so the panel is a single draw call.
     for i = 0, count - 1 do
         local m = members[i];
-        local ry = y + (PAD + i * (ROW_H + ROW_GAP)) * s;
+        local ry = y + row_y[i] * s;
         local by = ry + BAR_Y * s;
         local targeted = m.in_zone and m.target_index ~= 0;
 
         -- target / subtarget highlight behind the row. the highlight is an
         -- outset slot, so its feathered edge extends past the rect; inset to
         -- keep it inside the panel.
-        local hx0, hy0, hw, hh = x + 6 * s, ry + 2 * s, w - 12 * s, (ROW_H - 4) * s;
+        local hx0, hy0, hw, hh = x + 6 * s, ry + 2 * s, w - 12 * s, (row_h[i] - 4) * s;
         if (targeted and m.target_index == target_index) then
             r.nineslice('row_highlight', hx0, hy0, hw, hh, c('row_target'));
         end
@@ -225,11 +313,22 @@ function party.draw(r, ctx, x, y)
         -- out of zone: the zone name replaces the bars (drawn in the text pass)
     end
 
+    -- status icons: their own sheet, so one more draw call for the panel.
+    local ss, step = STATUS_S * s, (STATUS_S + STATUS_GAP) * s;
+    for i = 0, count - 1 do
+        local m = members[i];
+        local n = min(m.nstatus, m.status_lines * PER_LINE);
+        local sy = y + (row_y[i] + STATUS_Y) * s;
+        for k = 0, n - 1 do
+            icons.status(r, m.status[k + 1], hx + (k % PER_LINE) * step, sy + floor(k / PER_LINE) * step, ss);
+        end
+    end
+
     -- names and zone names last (one gdifonts texture each), clipped so long
     -- names can't run into the job label.
     for i = 0, count - 1 do
         local m = members[i];
-        local ry = y + (PAD + i * (ROW_H + ROW_GAP)) * s;
+        local ry = y + row_y[i] * s;
         m.name_text = m.name_text or text.new({});
         m.name_text:set(m.name);
 
@@ -262,6 +361,7 @@ end
 function party.mouse(ctx, ev, mx, my)
     if (ev ~= 'ldown') then return false; end
     for i = 0, count - 1 do
+        if (row_y[i] == nil) then break; end -- not laid out yet
         local _, ry, _, rh = row_rect(ctx, i);
         local top = ry - ctx.y;
         if (my >= top and my < top + rh and members[i].active) then
