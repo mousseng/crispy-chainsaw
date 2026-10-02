@@ -32,7 +32,7 @@ inventory.TABS = {
     { name = 'bag',      bags = { 0, 3 } },
     { name = 'satchel',  bags = { 5, 7, 6 } },
     { name = 'wardrobe', bags = { 8, 10, 11, 12, 13, 14, 15, 16 } },
-    { name = 'house',    bags = { 1, 9, 2, 4 } },
+    { name = 'safe',     bags = { 1, 9, 2, 4 } },
 };
 
 -- bags that don't count towards their tab's space used: temporary items
