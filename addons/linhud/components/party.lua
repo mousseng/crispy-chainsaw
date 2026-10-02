@@ -316,12 +316,20 @@ function party.draw(r, ctx, x, y)
         local by = ry + BAR_Y * s;
         local targeted = m.in_zone and m.target_index ~= 0;
 
-        -- target / subtarget highlight behind the row. the highlight is an
-        -- outset slot, so its feathered edge extends past the rect; inset to
-        -- keep it inside the panel.
+        -- target / subtarget highlight behind the row, inset from the panel's
+        -- edge. the target's fades out across the first two thirds of the row.
+        -- a gradient only has stops at vertices, and the nineslice's stretched
+        -- middle spans nearly the whole row, so clip it to where the fade ends
+        -- (which puts vertices there) and draw the rest in the end colour.
         local hx0, hy0, hw, hh = x + 6 * s, ry + 2 * s, w - 12 * s, (row_h[i] - 4) * s;
         if (targeted and m.target_index == target_index) then
-            r.nineslice('row_highlight', hx0, hy0, hw, hh, c('row_target'));
+            local fw = hw * 0.66;
+            r.push_clip(hx0, hy0, fw, hh);
+            r.nineslice_hgrad('row_highlight', hx0, hy0, hw, hh, c('row_target'), c('row_target_fade'), hx0, hx0 + fw);
+            r.pop_clip();
+            r.push_clip(hx0 + fw, hy0, hw - fw, hh);
+            r.nineslice('row_highlight', hx0, hy0, hw, hh, c('row_target_fade'));
+            r.pop_clip();
         end
         if (targeted and m.target_index == subtarget_index) then
             r.nineslice('panel_border', hx0 - 2 * s, hy0 - 2 * s, hw + 4 * s, hh + 4 * s, c('subtarget'));
