@@ -30,7 +30,8 @@ local defaults = T{
     -- client states that hide the hud (see game/client.lua); components can
     -- override each one in their own `hide` table.
     hide       = T{ loading = true, event = true, interface = true, map = true, chat = true },
-    fade_in    = 0.15, -- seconds to fade back in once nothing hides it; 0 = pop in
+    fade_in    = 0.15, -- seconds to fade in when toggled on or once nothing hides it; 0 = pop in
+    fade_out   = 0.15, -- seconds to fade out when toggled off; 0 = vanish at once
     components = hud.defaults(),
 };
 

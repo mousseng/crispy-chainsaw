@@ -52,6 +52,12 @@
 * skip update and draw and don't take the mouse, but stay loaded and keep
 * receiving packets.
 *
+* toggling: a component turned on fades in over settings.fade_in seconds; one
+* turned off fades out over settings.fade_out, still updating and drawing but
+* not taking the mouse or commands, and is dropped once it's gone. turning it
+* back on mid-fade reverses from where it is. one turned off while hidden, or
+* by a settings reload, is dropped at once.
+*
 * grow_x / grow_y pick which edge stays put when a component changes size
 * (x: 'right' | 'left' | 'center', y: 'down' | 'up' | 'center'). 'auto' follows
 * the anchor: a 'left' anchor is vertically centred, so it grows both ways.
@@ -79,7 +85,7 @@ local GROW_Y = { down = 0, center = 0.5, up = 1 };
 local MSG = { [0x200] = 'move', [0x201] = 'ldown', [0x202] = 'lup', [0x204] = 'rdown', [0x205] = 'rup', [0x20A] = 'wheel' };
 local UP_OF = { ldown = 'lup', rdown = 'rup' };
 
-local components = {}; -- { name, defaults, mod, ctx, failed, alpha, shown }, in paint order
+local components = {}; -- { name, defaults, mod, ctx, failed, alpha, shown, closing }, in paint order
 local by_name = {};
 local settings = nil;  -- the addon settings table (settings.components[name])
 local screen_w, screen_h = 0, 0;
@@ -102,7 +108,7 @@ end
 ---@param defaults table|nil its settings defaults
 function hud.register(name, defaults)
     -- alpha starts at 0 so the hud fades in when first shown (e.g. after login).
-    local c = { name = name, defaults = defaults or {}, mod = nil, failed = nil, alpha = 0, shown = false };
+    local c = { name = name, defaults = defaults or {}, mod = nil, failed = nil, alpha = 0, shown = false, closing = false };
     c.ctx = new_ctx(c);
     components[#components + 1] = c;
     by_name[name] = c;
@@ -167,6 +173,7 @@ local function unload(c)
     end
     if (drag ~= nil and drag.c == c) then drag = nil; end
     c.ctx = new_ctx(c);
+    c.alpha, c.closing = 0, false; -- fades in when next loaded
 end
 
 ---shuts a component off after an error until it's re-enabled or reloaded.
@@ -217,7 +224,15 @@ function hud.set_enabled(name, on)
     local c = by_name[name];
     if (c == nil or c.ctx.settings == nil) then return false; end
     c.ctx.settings.enabled = on;
-    if (on) then c.failed = nil; else unload(c); end
+    if (on) then
+        c.failed, c.closing = nil, false; -- mid-fade-out, it fades back in from there
+    elseif (c.mod ~= nil and c.shown and (settings.fade_out or 0) > 0) then
+        c.closing = true; -- hud.frame fades it out, then unloads it
+        c.shown, c.ctx.modal = false, nil;
+        if (drag ~= nil and drag.c == c) then drag = nil; end
+    else
+        unload(c);
+    end
     if (hud.on_save) then hud.on_save(); end
     return true;
 end
@@ -376,10 +391,25 @@ function hud.frame(r, dt, sw, sh, text, state)
     local scale = theme.active().scale;
 
     local fade_step = (settings.fade_in or 0) > 0 and dt / settings.fade_in or 1;
+    local fade_out_step = (settings.fade_out or 0) > 0 and dt / settings.fade_out or 1;
     for _, c in ipairs(components) do
         if (not c.ctx.settings.enabled) then
-            -- disabled by a settings reload (e.g. character switch)
-            if (c.mod ~= nil) then unload(c); end
+            if (c.closing and not hidden(c, state)) then
+                -- toggled off: fade out, then drop it
+                c.alpha = c.alpha - fade_out_step;
+                if (c.alpha <= 0) then
+                    unload(c);
+                else
+                    r.set_base_opacity(c.alpha);
+                    draw_component(r, c, dt, scale);
+                    r.set_base_opacity(1);
+                    c.ctx.hover = false;
+                end
+            elseif (c.mod ~= nil) then
+                -- disabled by a settings reload (e.g. character switch), or
+                -- hidden mid-fade-out
+                unload(c);
+            end
         elseif (not load(c)) then
             c.shown = false;
         elseif (hidden(c, state)) then
@@ -504,7 +534,7 @@ end
 ---@return string|nil message to show
 function hud.command(name, args)
     local c = by_name[name];
-    if (c == nil or c.mod == nil or c.mod.command == nil) then return false; end
+    if (c == nil or c.mod == nil or c.closing or c.mod.command == nil) then return false; end
     local ok, handled, message = guard(c, 'command', c.mod.command, c.ctx, args);
     if (ok and handled and hud.on_save) then hud.on_save(); end
     return ok and handled or false, message;
