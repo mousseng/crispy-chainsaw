@@ -2,7 +2,7 @@
 * batched quad renderer.
 *
 * components call the draw functions between begin_frame and end_frame. every
-* draw appends a textured, coloured quad to one vertex array; consecutive quads
+* draw becomes textured, coloured quads in one vertex array; consecutive quads
 * that share a texture become a single draw call. theme art all lives in one
 * atlas, so a whole hud is usually a handful of calls (one per run of text
 * between runs of atlas art).
@@ -46,85 +46,232 @@ for q = 0, MAX_PER_CALL - 1 do
     indices[i + 3], indices[i + 4], indices[i + 5] = v + 2, v + 1, v + 3;
 end
 
--- draw commands as parallel arrays to avoid per-frame table garbage.
+-- draw commands as parallel arrays to avoid per-frame table garbage: a run of
+-- quads on one texture, from cmd_first[i] up to the next run's first quad.
+-- every draw starts one (see use()); finish_cmds then merges neighbours that
+-- share a texture and fills in the counts, so drawing never compares textures.
 local cmd_tex, cmd_first, cmd_count = {}, {}, {};
 local ncmds = 0;
 
-local clip_stack, clip = {}, nil; -- clip = { x0, y0, x1, y1 } or nil
+-- the clip rect as components set it, and the rects pushed over it (four
+-- numbers per level). always set: the whole plane when nothing clips.
+local NO_CLIP = 1e9;
+local clip_x0, clip_y0, clip_x1, clip_y1 = -NO_CLIP, -NO_CLIP, NO_CLIP, NO_CLIP;
+local clip_stack, clip_depth = {}, 0;
 local base, opacity = 1, 1; -- base: set by the hud per component; opacity: base * set_opacity()
 
 local last_stats = { quads = 0, calls = 0 };
 
---[[ vertex emission ]]--
+--[[
+* drawing is in two steps, for luajit's trace compiler; in particular ashita's,
+* moonjit on 32-bit x86, which has 8 float registers and numbers every value
+* it spills in a trace, up to 255 slots.
+*
+* 1. record: each draw writes its parameters into a flat array of doubles, as
+*    it computes them: a nineslice is one record of its grid, a glyph one
+*    record of its rect. clip and texture changes are records too. this is
+*    all components' traces ever contain of the renderer, so drawing a few
+*    dozen shapes in one loop iteration (a party row, a bar) stays small
+*    enough to compile. (when quads were built at the call, a few nineslices
+*    in one trace ran out of spill slots, and the caller ran interpreted.)
+*
+* 2. expand (end of frame): one loop turns records into vertices. a loop body
+*    is compiled once, so it spills only once however many quads go through
+*    it, and it has few live values, so its side traces (one per record kind)
+*    compile too.
+*
+* expansion avoids branches that vary from quad to quad: clipping is min/max,
+* a quad clipped away is written with zero area rather than skipped, and the
+* per-vertex constants (z, rhw) are written once when the array is allocated.
+* `/linhud jit` lists whatever still fails to compile.
+--]]
 
-local function grow()
+--[[ records ]]--
+
+local K_QUAD, K_NINE, K_VGRAD, K_CLIP, K_TEX = 1, 2, 3, 4, 5;
+local Q_LEN, NINE_LEN, VGRAD_LEN, CLIP_LEN, TEX_LEN = 10, 18, 9, 5, 2; -- doubles per record
+
+local rcap = 16384;
+local rec = ffi.new('double[?]', rcap);
+local nrec = 0;
+local expanded = false;
+
+local function grow_rec(need)
+    local ncap = rcap * 2;
+    while (ncap < need) do ncap = ncap * 2; end
+    local nr = ffi.new('double[?]', ncap);
+    ffi.copy(nr, rec, nrec * 8);
+    rec, rcap = nr, ncap;
+end
+
+---starts a run of quads on tex, with room for n more record doubles. call
+---once per draw, before its records.
+local function use(tex, n)
+    if (nrec + TEX_LEN + n > rcap) then grow_rec(nrec + TEX_LEN + n); end
+    ncmds = ncmds + 1;
+    cmd_tex[ncmds] = tex;
+    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
+    nrec = nrec + TEX_LEN;
+end
+
+---records a quad in a single colour (already faded). use() must have made
+---room for it.
+local function rec_quad(x0, y0, x1, y1, u0, v0, u1, v1, c)
+    local i = nrec;
+    rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = K_QUAD, x0, y0, x1, y1;
+    rec[i + 5], rec[i + 6], rec[i + 7], rec[i + 8], rec[i + 9] = u0, v0, u1, v1, c;
+    nrec = i + Q_LEN;
+end
+
+local function rec_clip()
+    if (nrec + CLIP_LEN > rcap) then grow_rec(nrec + CLIP_LEN); end
+    local i = nrec;
+    rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = K_CLIP, clip_x0, clip_y0, clip_x1, clip_y1;
+    nrec = i + CLIP_LEN;
+end
+
+--[[ expansion ]]--
+
+local function prefill(from, to)
+    for i = from, to - 1 do
+        verts[i].z, verts[i].rhw = 0, 1;
+    end
+end
+prefill(0, capacity * 4);
+
+local function grow(need)
     local ncap = capacity * 2;
+    while (ncap < need) do ncap = ncap * 2; end
     local nv = ffi.new('linhud_vertex_t[?]', ncap * 4);
     ffi.copy(nv, verts, nquads * 4 * VERTEX_SIZE);
-    verts, capacity = nv, ncap;
+    verts = nv;
+    prefill(nquads * 4, ncap * 4);
+    capacity = ncap;
 end
 
-local function fade(c)
-    if (opacity >= 1) then return c; end
-    local a = floor(band(rshift(c, 24), 0xFF) * opacity + 0.5);
-    return bor(lshift(a, 24), band(c, 0x00FFFFFF));
-end
+-- the clip rect while expanding (as recorded).
+local ex_x0, ex_y0, ex_x1, ex_y1 = -NO_CLIP, -NO_CLIP, NO_CLIP, NO_CLIP;
 
----interpolates two argb colours per channel.
-local function lerp_color(a, b, t)
-    if (a == b) then return a; end
-    local r = 0;
-    for s = 0, 24, 8 do
-        local ca, cb = band(rshift(a, s), 0xFF), band(rshift(b, s), 0xFF);
-        r = bor(r, lshift(floor(ca + (cb - ca) * t + 0.5), s));
-    end
-    return r;
-end
-
-local function set_vertex(v, x, y, u, vv, c)
-    v.x, v.y, v.z, v.rhw = x - 0.5, y - 0.5, 0, 1; -- d3d8 texel/pixel centre alignment
-    -- bit ops return signed int32, so colours with alpha >= 0x80 arrive negative.
-    -- negative -> uint32_t is undefined in ffi and 32-bit luajit (what ashita
-    -- runs) really does mangle it once traces compile. wrap into 0..2^32-1.
-    v.color, v.u, v.v = c % 4294967296, u, vv;
-end
-
----appends one axis-aligned quad. colours are per corner (tl, tr, bl, br).
-local function emit(tex, x0, y0, x1, y1, u0, v0, u1, v1, ctl, ctr, cbl, cbr)
-    if (clip ~= nil) then
-        local cx0, cy0, cx1, cy1 = max(x0, clip[1]), max(y0, clip[2]), min(x1, clip[3]), min(y1, clip[4]);
-        if (cx0 >= cx1 or cy0 >= cy1) then return; end
-        if (cx0 ~= x0 or cy0 ~= y0 or cx1 ~= x1 or cy1 ~= y1) then
-            local w, h = x1 - x0, y1 - y0;
-            local tx0, ty0, tx1, ty1 = (cx0 - x0) / w, (cy0 - y0) / h, (cx1 - x0) / w, (cy1 - y0) / h;
-            local du, dv = u1 - u0, v1 - v0;
-            if (ctl ~= ctr or ctl ~= cbl or ctl ~= cbr) then
-                local l0, l1 = lerp_color(ctl, cbl, ty0), lerp_color(ctl, cbl, ty1);
-                local r0, r1 = lerp_color(ctr, cbr, ty0), lerp_color(ctr, cbr, ty1);
-                ctl, ctr = lerp_color(l0, r0, tx0), lerp_color(l0, r0, tx1);
-                cbl, cbr = lerp_color(l1, r1, tx0), lerp_color(l1, r1, tx1);
-            end
-            x0, y0, x1, y1 = cx0, cy0, cx1, cy1;
-            u0, v0, u1, v1 = u0 + du * tx0, v0 + dv * ty0, u0 + du * tx1, v0 + dv * ty1;
-        end
-    end
-    if (x0 >= x1 or y0 >= y1) then return; end
-
-    if (nquads >= capacity) then grow(); end
-
-    if (ncmds > 0 and cmd_tex[ncmds] == tex and cmd_count[ncmds] < MAX_PER_CALL) then
-        cmd_count[ncmds] = cmd_count[ncmds] + 1;
-    else
-        ncmds = ncmds + 1;
-        cmd_tex[ncmds], cmd_first[ncmds], cmd_count[ncmds] = tex, nquads, 1;
-    end
+---writes one quad, clipped: the rect and its uvs shrink to the part inside the
+---clip rect, down to zero area. the caller makes room.
+local function quad(x0, y0, x1, y1, u0, v0, u1, v1, c)
+    local qx0, qy0 = max(x0, ex_x0), max(y0, ex_y0);
+    local qx1, qy1 = max(min(x1, ex_x1), qx0), max(min(y1, ex_y1), qy0);
+    -- uv per pixel; the max keeps a zero-size quad from dividing by zero
+    local su, sv = (u1 - u0) / max(x1 - x0, 1e-6), (v1 - v0) / max(y1 - y0, 1e-6);
+    u1, v1 = u0 + (qx1 - x0) * su, v0 + (qy1 - y0) * sv;
+    u0, v0 = u0 + (qx0 - x0) * su, v0 + (qy0 - y0) * sv;
+    qx0, qy0, qx1, qy1 = qx0 - 0.5, qy0 - 0.5, qx1 - 0.5, qy1 - 0.5; -- d3d8 texel/pixel centre alignment
 
     local v = verts + nquads * 4;
-    set_vertex(v[0], x0, y0, u0, v0, fade(ctl));
-    set_vertex(v[1], x1, y0, u1, v0, fade(ctr));
-    set_vertex(v[2], x0, y1, u0, v1, fade(cbl));
-    set_vertex(v[3], x1, y1, u1, v1, fade(cbr));
+    v[0].x, v[0].y, v[0].u, v[0].v, v[0].color = qx0, qy0, u0, v0, c;
+    v[1].x, v[1].y, v[1].u, v[1].v, v[1].color = qx1, qy0, u1, v0, c;
+    v[2].x, v[2].y, v[2].u, v[2].v, v[2].color = qx0, qy1, u0, v1, c;
+    v[3].x, v[3].y, v[3].u, v[3].v, v[3].color = qx1, qy1, u1, v1, c;
     nquads = nquads + 1;
+end
+
+local function lerp_channel(a, b, s, t)
+    local ca, cb = band(rshift(a, s), 0xFF), band(rshift(b, s), 0xFF);
+    return lshift(floor(ca + (cb - ca) * t + 0.5), s);
+end
+
+---interpolates two argb colours per channel (unrolled: the compiler would
+---unroll a loop here anyway, or give up on it).
+local function lerp_color(a, b, t)
+    return bor(lerp_channel(a, b, 0, t), lerp_channel(a, b, 8, t), lerp_channel(a, b, 16, t), lerp_channel(a, b, 24, t));
+end
+
+---a quad with a vertical gradient (colours already faded), the colours
+---interpolated to wherever the clip cuts it.
+local function quad_vgrad(x0, y0, x1, y1, u, v, top, bottom)
+    local h = max(y1 - y0, 1e-6);
+    local t0 = (max(y0, ex_y0) - y0) / h;
+    local t1 = (max(min(y1, ex_y1), max(y0, ex_y0)) - y0) / h;
+    local ct, cb = lerp_color(top, bottom, t0) % 4294967296, lerp_color(top, bottom, t1) % 4294967296;
+    local n = nquads;
+    quad(x0, y0, x1, y1, u, v, u, v, ct);
+    local q = verts + n * 4;
+    q[2].color, q[3].color = cb, cb;
+end
+
+---the nine quads of a nineslice record at i: its grid lines (x, y), their uvs
+---and colour.
+local function quad_nine(r, i)
+    local x0, x1, x2, x3 = r[i + 1], r[i + 2], r[i + 3], r[i + 4];
+    local y0, y1, y2, y3 = r[i + 5], r[i + 6], r[i + 7], r[i + 8];
+    local u0, u1, u2, u3 = r[i + 9], r[i + 10], r[i + 11], r[i + 12];
+    local v0, v1, v2, v3 = r[i + 13], r[i + 14], r[i + 15], r[i + 16];
+    local c = r[i + 17];
+    quad(x0, y0, x1, y1, u0, v0, u1, v1, c);
+    quad(x1, y0, x2, y1, u1, v0, u2, v1, c);
+    quad(x2, y0, x3, y1, u2, v0, u3, v1, c);
+    quad(x0, y1, x1, y2, u0, v1, u1, v2, c);
+    quad(x1, y1, x2, y2, u1, v1, u2, v2, c);
+    quad(x2, y1, x3, y2, u2, v1, u3, v2, c);
+    quad(x0, y2, x1, y3, u0, v2, u1, v3, c);
+    quad(x1, y2, x2, y3, u1, v2, u2, v3, c);
+    quad(x2, y2, x3, y3, u2, v2, u3, v3, c);
+end
+
+---turns the frame's records into vertices. runs once per frame.
+local function expand()
+    if (expanded) then return; end
+    expanded = true;
+    ex_x0, ex_y0, ex_x1, ex_y1 = -NO_CLIP, -NO_CLIP, NO_CLIP, NO_CLIP;
+    local r, i, n = rec, 0, nrec;
+    while (i < n) do
+        if (nquads + 9 > capacity) then grow(nquads + 9); end
+        local k = r[i];
+        if (k == K_QUAD) then
+            quad(r[i + 1], r[i + 2], r[i + 3], r[i + 4], r[i + 5], r[i + 6], r[i + 7], r[i + 8], r[i + 9]);
+            i = i + Q_LEN;
+        elseif (k == K_NINE) then
+            quad_nine(r, i);
+            i = i + NINE_LEN;
+        elseif (k == K_TEX) then
+            cmd_first[r[i + 1]] = nquads;
+            i = i + TEX_LEN;
+        elseif (k == K_CLIP) then
+            ex_x0, ex_y0, ex_x1, ex_y1 = r[i + 1], r[i + 2], r[i + 3], r[i + 4];
+            i = i + CLIP_LEN;
+        else -- K_VGRAD
+            quad_vgrad(r[i + 1], r[i + 2], r[i + 3], r[i + 4], r[i + 5], r[i + 6], r[i + 7], r[i + 8]);
+            i = i + VGRAD_LEN;
+        end
+    end
+end
+
+---merges the frame's runs into draw calls: drops empty ones, joins
+---neighbours on the same texture (their quads are contiguous), and counts
+---each one's quads. safe to call again.
+local function finish_cmds()
+    local n = 0;
+    for i = 1, ncmds do
+        local first = cmd_first[i];
+        local count = (i < ncmds and cmd_first[i + 1] or nquads) - first;
+        if (count > 0) then
+            if (n > 0 and cmd_tex[n] == cmd_tex[i]) then
+                cmd_count[n] = cmd_count[n] + count;
+            else
+                n = n + 1;
+                cmd_tex[n], cmd_first[n], cmd_count[n] = cmd_tex[i], first, count;
+            end
+        end
+    end
+    for i = n + 1, ncmds do cmd_tex[i] = nil; end
+    ncmds = n;
+end
+
+--[[ helpers ]]--
+
+---applies the current opacity to a colour and wraps it into 0..2^32-1: bit
+---ops return signed int32, so colours with alpha >= 0x80 arrive negative, and
+---negative -> uint32_t is undefined in ffi (32-bit luajit, what ashita runs,
+---really does mangle it once traces compile). once per draw, not per vertex.
+local function fade(c)
+    local a = floor(band(rshift(c, 24), 0xFF) * opacity + 0.5);
+    return bor(lshift(a, 24), band(c, 0x00FFFFFF)) % 4294967296;
 end
 
 local function round(v)
@@ -140,38 +287,39 @@ end
 --[[ frame ]]--
 
 function render.begin_frame()
-    nquads, ncmds = 0, 0;
-    clip, base, opacity = nil, 1, 1;
-    for i = #clip_stack, 1, -1 do clip_stack[i] = nil; end
+    nquads, ncmds, nrec, expanded = 0, 0, 0, false;
+    clip_x0, clip_y0, clip_x1, clip_y1 = -NO_CLIP, -NO_CLIP, NO_CLIP, NO_CLIP;
+    clip_depth, base, opacity = 0, 1, 1;
 end
 
 --[[ state ]]--
 
 ---intersects with the current clip rect. pairs with pop_clip.
 function render.push_clip(x, y, w, h)
-    clip_stack[#clip_stack + 1] = clip;
-    local x1, y1 = x + w, y + h;
-    if (clip ~= nil) then
-        x, y, x1, y1 = max(x, clip[1]), max(y, clip[2]), min(x1, clip[3]), min(y1, clip[4]);
-    end
-    clip = { x, y, x1, y1 };
+    local i = clip_depth * 4;
+    clip_stack[i + 1], clip_stack[i + 2], clip_stack[i + 3], clip_stack[i + 4] = clip_x0, clip_y0, clip_x1, clip_y1;
+    clip_depth = clip_depth + 1;
+    clip_x0, clip_y0, clip_x1, clip_y1 = max(x, clip_x0), max(y, clip_y0), min(x + w, clip_x1), min(y + h, clip_y1);
+    rec_clip();
 end
 
 function render.pop_clip()
-    local n = #clip_stack;
-    clip = clip_stack[n];
-    clip_stack[n] = nil;
+    if (clip_depth == 0) then return; end
+    clip_depth = clip_depth - 1;
+    local i = clip_depth * 4;
+    clip_x0, clip_y0, clip_x1, clip_y1 = clip_stack[i + 1], clip_stack[i + 2], clip_stack[i + 3], clip_stack[i + 4];
+    rec_clip();
 end
 
 ---depth of the clip stack, for restore().
 function render.depth()
-    return #clip_stack;
+    return clip_depth;
 end
 
 ---undoes state left behind by a draw that didn't finish (a component that
 ---errored mid-draw): pops clips down to depth and resets opacity.
 function render.restore(depth)
-    while (#clip_stack > depth) do render.pop_clip(); end
+    while (clip_depth > depth) do render.pop_clip(); end
     opacity = base;
 end
 
@@ -192,8 +340,8 @@ end
 
 ---raw textured quad with explicit uvs (defaults to the whole texture).
 function render.image(tex, x, y, w, h, color, u0, v0, u1, v1)
-    color = color or 0xFFFFFFFF;
-    emit(tex, x, y, x + w, y + h, u0 or 0, v0 or 0, u1 or 1, v1 or 1, color, color, color, color);
+    use(tex, Q_LEN);
+    rec_quad(x, y, x + w, y + h, u0 or 0, v0 or 0, u1 or 1, v1 or 1, fade(color or 0xFFFFFFFF));
 end
 
 ---solid rectangle. pass `bottom` for a vertical gradient.
@@ -202,14 +350,54 @@ function render.rect(x, y, w, h, color, bottom)
     if (meta == nil) then return; end
     local r = meta.region;
     local u, v = (r.u0 + r.u1) * 0.5, (r.v0 + r.v1) * 0.5;
-    bottom = bottom or color;
-    emit(theme.texture(), x, y, x + w, y + h, u, v, u, v, color, color, bottom, bottom);
+    use(theme.texture(), Q_LEN);
+    if (bottom == nil or bottom == color) then
+        rec_quad(x, y, x + w, y + h, u, v, u, v, fade(color));
+    else
+        local i = nrec;
+        rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = K_VGRAD, x, y, x + w, y + h;
+        rec[i + 5], rec[i + 6], rec[i + 7], rec[i + 8] = u, v, fade(color), fade(bottom);
+        nrec = i + VGRAD_LEN;
+    end
 end
 
-local function nine_row(tex, y0, y1, v0, v1, x0, x1, x2, x3, u0, u1, u2, u3, c)
-    emit(tex, x0, y0, x1, y1, u0, v0, u1, v1, c, c, c, c);
-    emit(tex, x1, y0, x2, y1, u1, v0, u2, v1, c, c, c, c);
-    emit(tex, x2, y0, x3, y1, u2, v0, u3, v1, c, c, c, c);
+-- the body of render.nineslice, split out so its locals are gone by the time
+-- nineslice returns. nineslice is hot and called from everywhere, so it gets
+-- compiled on its own, and its return to each caller needs a side trace that
+-- takes over every value still live there; with this many, moonjit can't on
+-- 32-bit x86 ("register coalescing too complex"), and retries forever.
+local function rec_nine(meta, x, y, w, h, color, flip)
+    use(theme.texture(), NINE_LEN);
+    local k = theme.active().scale / meta.density; -- texture px -> screen px
+    local i = nrec;
+    rec[i] = K_NINE;
+    rec[i + 17] = fade(slot_color(meta, color or 0xFFFFFFFF));
+
+    local o = round((meta.outset or 0) * k);
+    local sl, st, sr, sb = meta.slice[1] * k, meta.slice[2] * k, meta.slice[3] * k, meta.slice[4] * k;
+    -- grid lines in x: the rect's edges (rounded, then outset), and the fixed
+    -- edges inside them, shrunk to fit when the rect is narrower than they are
+    local x0, x3 = round(x) - o, round(x + w) + o;
+    local f = (x3 - x0) / max(sl + sr, x3 - x0, 1e-6);
+    rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = x0, x0 + sl * f, x3 - sr * f, x3;
+    -- and in y; flipped, the bottom edge's texels go on top, sized as it is
+    local y0, y3 = round(y) - o, round(y + h) + o;
+    f = (y3 - y0) / max(st + sb, y3 - y0, 1e-6);
+    if (flip) then
+        rec[i + 5], rec[i + 6], rec[i + 7], rec[i + 8] = y0, y0 + sb * f, y3 - st * f, y3;
+    else
+        rec[i + 5], rec[i + 6], rec[i + 7], rec[i + 8] = y0, y0 + st * f, y3 - sb * f, y3;
+    end
+
+    local r, sl_, st_, sr_, sb_ = meta.region, meta.slice[1], meta.slice[2], meta.slice[3], meta.slice[4];
+    local du, dv = (r.u1 - r.u0) / r.w, (r.v1 - r.v0) / r.h;
+    rec[i + 9], rec[i + 10], rec[i + 11], rec[i + 12] = r.u0, r.u0 + sl_ * du, r.u1 - sr_ * du, r.u1;
+    if (flip) then
+        rec[i + 13], rec[i + 14], rec[i + 15], rec[i + 16] = r.v1, r.v1 - sb_ * dv, r.v0 + st_ * dv, r.v0;
+    else
+        rec[i + 13], rec[i + 14], rec[i + 15], rec[i + 16] = r.v0, r.v0 + st_ * dv, r.v1 - sb_ * dv, r.v1;
+    end
+    nrec = i + NINE_LEN;
 end
 
 ---draws a nineslice or outset slot stretched to the rect. outset slots extend
@@ -218,35 +406,7 @@ end
 function render.nineslice(name, x, y, w, h, color, flip)
     local meta = theme.slot(name);
     if (meta == nil) then return; end
-    local tex, r = theme.texture(), meta.region;
-    local k = theme.active().scale / meta.density; -- texture px -> screen px
-    local c = slot_color(meta, color or 0xFFFFFFFF);
-
-    local x1, y1 = round(x + w), round(y + h);
-    x, y = round(x), round(y);
-    w, h = x1 - x, y1 - y;
-    local o = round((meta.outset or 0) * k);
-    x, y, w, h = x - o, y - o, w + o * 2, h + o * 2;
-
-    local sl, st, sr, sb = meta.slice[1], meta.slice[2], meta.slice[3], meta.slice[4];
-    local l, t, rr, b = sl * k, st * k, sr * k, sb * k;
-    if (l + rr > w) then local f = w / (l + rr); l, rr = l * f, rr * f; end
-    if (t + b > h) then local f = h / (t + b); t, b = t * f, b * f; end
-
-    local du, dv = (r.u1 - r.u0) / r.w, (r.v1 - r.v0) / r.h;
-    local x0, x1_, x2, x3 = x, x + l, x + w - rr, x + w;
-    local u0, u1, u2, u3 = r.u0, r.u0 + sl * du, r.u1 - sr * du, r.u1;
-    local y0, y1_, y2, y3 = y, y + t, y + h - b, y + h;
-    local v0, v1, v2, v3 = r.v0, r.v0 + st * dv, r.v1 - sb * dv, r.v1;
-    if (flip) then
-        -- the bottom edge's texels go on top, sized as the bottom edge
-        y1_, y2 = y + b, y + h - t;
-        v0, v1, v2, v3 = v3, v2, v1, v0;
-    end
-
-    nine_row(tex, y0, y1_, v0, v1, x0, x1_, x2, x3, u0, u1, u2, u3, c);
-    nine_row(tex, y1_, y2, v1, v2, x0, x1_, x2, x3, u0, u1, u2, u3, c);
-    nine_row(tex, y2, y3, v2, v3, x0, x1_, x2, x3, u0, u1, u2, u3, c);
+    rec_nine(meta, x, y, w, h, color, flip);
 end
 
 ---a nineslice slot's fixed edges (left, top, right, bottom) in screen
@@ -276,8 +436,8 @@ function render.sprite(name, x, y, color, scale)
     local w, h = r.w * k, r.h * k;
     local px, py = meta.pivot[1], meta.pivot[2];
     x, y = round(x - w * px), round(y - h * py);
-    local c = slot_color(meta, color or 0xFFFFFFFF);
-    emit(theme.texture(), x, y, x + w, y + h, r.u0, r.v0, r.u1, r.v1, c, c, c, c);
+    use(theme.texture(), Q_LEN);
+    rec_quad(x, y, x + w, y + h, r.u0, r.v0, r.u1, r.v1, fade(slot_color(meta, color or 0xFFFFFFFF)));
     return w, h;
 end
 
@@ -293,7 +453,7 @@ function render.glyphs_width(set, str)
     return w + set.pad;
 end
 
-local function glyph_pass(tex, set, str, x, y, c, which)
+local function glyph_pass(set, str, x, y, c, which)
     local g = set.glyphs;
     for i = 1, #str do
         local gl = g[str:byte(i)];
@@ -301,7 +461,7 @@ local function glyph_pass(tex, set, str, x, y, c, which)
             local meta = gl[which];
             if (meta ~= nil) then
                 local r, gx = meta.region, x + gl.off;
-                emit(tex, gx, y, gx + r.w, y + r.h, r.u0, r.v0, r.u1, r.v1, c, c, c, c);
+                rec_quad(gx, y, gx + r.w, y + r.h, r.u0, r.v0, r.u1, r.v1, c);
             end
             x = x + gl.adv;
         end
@@ -315,12 +475,12 @@ end
 function render.glyphs(set, str, x, y, color, align)
     local w = render.glyphs_width(set, str);
     x, y = round(x - w * (ALIGN[align or 'left'] or 0)), round(y);
-    local tex = theme.texture();
     local c = color or 0xFFFFFFFF;
+    use(theme.texture(), (set.outline and #str * 2 or #str) * Q_LEN);
     if (set.outline) then
-        glyph_pass(tex, set, str, x, y, bor(band(c, 0xFF000000), 0x00FFFFFF), 'outline');
+        glyph_pass(set, str, x, y, fade(bor(band(c, 0xFF000000), 0x00FFFFFF)), 'outline');
     end
-    glyph_pass(tex, set, str, x, y, c, 'fill');
+    glyph_pass(set, str, x, y, fade(c), 'fill');
     return w, set.height;
 end
 
@@ -347,7 +507,8 @@ function render.text(font, x, y, color, tint)
     local c = color or 0xFFFFFFFF;
     if (not tint) then c = bor(band(c, 0xFF000000), 0x00FFFFFF); end
     x, y = round(x), round(y);
-    emit(tex, x, y, x + w, y + h, 0, 0, w / dims[1], h / dims[2], c, c, c, c);
+    use(tex, Q_LEN);
+    rec_quad(x, y, x + w, y + h, 0, 0, w / dims[1], h / dims[2], fade(c));
     return w, h;
 end
 
@@ -412,7 +573,11 @@ end
 ---submits the frame's quads. call once per frame from d3d_present.
 function render.end_frame()
     for i = 1, #hooks do hooks[i](); end
-    last_stats.quads, last_stats.calls = nquads, ncmds;
+    expand();
+    finish_cmds();
+    local calls = 0;
+    for i = 1, ncmds do calls = calls + math.ceil(cmd_count[i] / MAX_PER_CALL); end
+    last_stats.quads, last_stats.calls = nquads, calls;
     if (nquads == 0) then return; end
 
     local dev = require('d3d8').get_device();
@@ -439,10 +604,14 @@ function render.end_frame()
 
     -- draw
     for i = 1, ncmds do
-        local count = cmd_count[i];
+        local first, left = cmd_first[i], cmd_count[i];
         dev:SetTexture(0, ffi.cast('IDirect3DBaseTexture8*', cmd_tex[i]));
-        dev:DrawIndexedPrimitiveUP(C.D3DPT_TRIANGLELIST, 0, count * 4, count * 2,
-            indices, C.D3DFMT_INDEX16, verts + cmd_first[i] * 4, VERTEX_SIZE);
+        while (left > 0) do -- 16-bit indices address MAX_PER_CALL quads at a time
+            local count = min(left, MAX_PER_CALL);
+            dev:DrawIndexedPrimitiveUP(C.D3DPT_TRIANGLELIST, 0, count * 4, count * 2,
+                indices, C.D3DFMT_INDEX16, verts + first * 4, VERTEX_SIZE);
+            first, left = first + count, left - count;
+        end
     end
 
     -- restore
@@ -470,6 +639,8 @@ end
 
 ---read-only view of the current batch, for offline tests.
 function render._batch()
+    expand();
+    finish_cmds();
     return verts, nquads, { tex = cmd_tex, first = cmd_first, count = cmd_count, n = ncmds };
 end
 

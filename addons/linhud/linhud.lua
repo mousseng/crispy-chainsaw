@@ -320,6 +320,8 @@ ashita.events.register('command', 'command_cb', function (e)
         local st = render.stats();
         msg('%d quads, %d draw calls, cpu %.3f ms avg / %.3f ms worst (last 1s)', st.quads, st.calls, timing.avg, timing.max);
         msg('  build %.3f ms (update + draw), submit %.3f ms (uploads + d3d calls)', timing.build_avg, timing.submit_avg);
+        local total, recent = jitlog.counts();
+        msg('  jit aborts: %d total, %s in the last 10s', total, recent and tostring(recent) or '(not 10s yet)');
         local icons = package.loaded['ui.icons'];
         if (icons ~= nil) then
             local is = icons.stats('items');

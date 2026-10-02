@@ -293,6 +293,80 @@ end
 
 --[[ drawing ]]--
 
+--[[
+* the grid's loops are each in a function of their own, taking only what they
+* need. leaving a compiled loop is a side exit, and its side trace has to take
+* over every value still live in the function there; inv.draw has more than
+* moonjit can shuffle on 32-bit x86, so the side trace fails, and is retried
+* a couple of hundred times before that exit is left to the interpreter (see
+* ui/render.lua). the loop that draws cells also avoids branches that go
+* different ways from one cell to the next, for the same reason.
+--]]
+
+---the cells in view, as a range: cell_y only grows with i.
+local function visible_cells(oy, s, cs, vy, vh)
+    local first, last = 1, ncells;
+    while (first <= last and oy + cell_y[first] * s + cs <= vy) do first = first + 1; end
+    while (last >= first and oy + cell_y[last] * s >= vy + vh) do last = last - 1; end
+    return first, last;
+end
+
+---the cell under the mouse, or 0.
+local function find_hot(first, last, vx, oy, s, cs, mx, my)
+    local hot = 0;
+    for i = first, last do
+        local cx, cy = vx + cell_x[i] * s, oy + cell_y[i] * s;
+        if (mx >= cx and mx < cx + cs and my >= cy and my < cy + cs) then hot = i; end
+    end
+    return hot;
+end
+
+---the cell the open menu is for, or 0.
+local function find_menu(first, last)
+    local found = 0;
+    for i = first, last do
+        if (cell_item[i] == menu_item) then found = i; end
+    end
+    return found;
+end
+
+---cell backgrounds, recording each cell's position for the passes after it
+---and for clicks.
+local function draw_cells(r, first, last, vx, oy, s, cs, hot_i, menu_i, bg, hover)
+    for i = first, last do
+        local cx, cy = vx + cell_x[i] * s, oy + cell_y[i] * s;
+        local n = i - first + 1;
+        hit_item[n], hit_x[n], hit_y[n] = cell_item[i], cx, cy;
+        -- 1 for the hovered and menu cells, else 0
+        local d0, d1 = i - hot_i, i - menu_i;
+        local hot = 1 - math.min(1, d0 * d0, d1 * d1);
+        r.nineslice('cell', cx + 1 * s, cy + 1 * s, cs - 2 * s, cs - 2 * s, bg + hot * (hover - bg));
+    end
+end
+
+local function draw_icons(r, inset, is)
+    for n = 1, nhits do
+        local e = hit_item[n];
+        icons.item(r, e.id, hit_x[n] + inset, hit_y[n] + inset, is, e.locked and 0xC0FFFFFF or nil);
+    end
+end
+
+---stack counts and equipped marks.
+local function draw_marks(r, s, cs, inset, text_color, mark_color)
+    local _, count_h = count_num:size();
+    for n = 1, nhits do
+        local e = hit_item[n];
+        if (e.info.stack > 1) then
+            count_num:set(tostring(e.count));
+            count_num:draw(hit_x[n] + cs - inset, hit_y[n] + cs - inset - count_h + 3 * s, text_color, 'right');
+        end
+        if (e.equipped) then
+            r.sprite('dot', hit_x[n] + inset + 3 * s, hit_y[n] + inset + 3 * s, 0xFF000000, 2.5);
+            r.sprite('dot', hit_x[n] + inset + 3 * s, hit_y[n] + inset + 3 * s, mark_color, 1.6);
+        end
+    end
+end
+
 function inv.measure(ctx)
     local s = ctx.scale;
     local w = PAD * 2 + columns(ctx) * CELL;
@@ -337,36 +411,17 @@ function inv.draw(r, ctx, x, y)
     local over_view = mx >= vx and mx < vx + vw and my >= vy and my < vy + vh;
     local hovered = nil;
 
-    nhits, hit_size = 0, cs;
+    local first, last = visible_cells(oy, s, cs, vy, vh);
+    local hot_i = over_view and find_hot(first, last, vx, oy, s, cs, mx, my) or 0;
+    local menu_i = find_menu(first, last);
+    if (hot_i ~= 0 and hot_i ~= menu_i) then hovered = cell_item[hot_i]; end
+
+    nhits, hit_size = math.max(0, last - first + 1), cs;
     r.push_clip(vx, vy, vw, vh);
-    for i = 1, ncells do
-        local cx, cy = vx + cell_x[i] * s, oy + cell_y[i] * s;
-        if (cy + cs > vy and cy < vy + vh) then
-            local e = cell_item[i];
-            nhits = nhits + 1;
-            hit_item[nhits], hit_x[nhits], hit_y[nhits] = e, cx, cy;
-            local hot = e == menu_item
-                or (over_view and mx >= cx and mx < cx + cs and my >= cy and my < cy + cs);
-            if (hot and e ~= menu_item) then hovered = e; end
-            r.nineslice('cell', cx + 1 * s, cy + 1 * s, cs - 2 * s, cs - 2 * s, c(hot and 'hover' or 'cell_bg'));
-        end
-    end
-    for n = 1, nhits do
-        icons.item(r, hit_item[n].id, hit_x[n] + inset, hit_y[n] + inset, is, hit_item[n].locked and 0xC0FFFFFF or nil);
-    end
+    draw_cells(r, first, last, vx, oy, s, cs, hot_i, menu_i, c('cell_bg'), c('hover'));
+    draw_icons(r, inset, is);
     count_num = count_num or text.number('count');
-    local _, count_h = count_num:size();
-    for n = 1, nhits do
-        local e = hit_item[n];
-        if (e.info.stack > 1) then
-            count_num:set(tostring(e.count));
-            count_num:draw(hit_x[n] + cs - inset, hit_y[n] + cs - inset - count_h + 3 * s, c('text'), 'right');
-        end
-        if (e.equipped) then
-            r.sprite('dot', hit_x[n] + inset + 3 * s, hit_y[n] + inset + 3 * s, 0xFF000000, 2.5);
-            r.sprite('dot', hit_x[n] + inset + 3 * s, hit_y[n] + inset + 3 * s, c('accent'), 1.6);
-        end
-    end
+    draw_marks(r, s, cs, inset, c('text'), c('accent'));
     for _, hd in ipairs(heads) do
         local hy = oy + hd.y * s;
         if (hy + HEAD_H * s > vy and hy < vy + vh) then

@@ -19,6 +19,20 @@ local aborts = {};  -- 'start | abort location | reason' -> count
 local stops = {};   -- start location -> compiled trace count
 local naborts, nstops = 0, 0;
 
+-- aborts per 10s window, so `/linhud stats` can show whether anything is still
+-- failing once the hud is warm.
+local WINDOW = 10;
+local window_start, window_aborts, last_window = os.time(), 0, nil;
+
+local function roll()
+    local now = os.time();
+    if (now - window_start >= WINDOW) then
+        -- a window with no aborts at all may have passed in between
+        last_window = now - window_start >= WINDOW * 2 and 0 or window_aborts;
+        window_start, window_aborts = now, 0;
+    end
+end
+
 local function fmtfunc(func, pc)
     if (util == nil) then return '?'; end
     local fi = util.funcinfo(func, pc);
@@ -30,14 +44,15 @@ end
 
 local function fmterr(err, info)
     if (type(err) ~= 'number') then return tostring(err); end
-    if (type(info) == 'function') then
-        info = fmtfunc(info);
-    elseif (type(info) == 'number' and vmdef and vmdef.bcnames) then
-        -- NYI bytecodes come as an opcode number
-        info = vmdef.bcnames:sub(info * 6 + 1, info * 6 + 6):gsub('%s+$', '');
-    end
     local f = vmdef and vmdef.traceerr[err];
     if (f == nil) then return ('error %d (%s)'):format(err, tostring(info)); end
+    if (type(info) == 'function') then
+        info = fmtfunc(info);
+    elseif (type(info) == 'number' and vmdef.bcnames and f:find('bytecode')) then
+        -- NYI bytecodes come as an opcode number
+        info = vmdef.bcnames:sub(info * 6 + 1, info * 6 + 6):gsub('%s+$', '');
+        f = f:gsub('%%d', '%%s');
+    end
     local okf, s = pcall(string.format, f, info);
     return okf and s or f;
 end
@@ -53,6 +68,8 @@ local function on_trace(what, tr, func, pc, otr, oex)
         local key = ('%s | at %s | %s'):format(started[tr] or '?', fmtfunc(func, pc), fmterr(otr, oex));
         aborts[key] = (aborts[key] or 0) + 1;
         naborts = naborts + 1;
+        roll();
+        window_aborts = window_aborts + 1;
     end
 end
 
@@ -64,6 +81,12 @@ end
 
 function jitlog.stop()
     if (jit ~= nil and jit.attach ~= nil) then jit.attach(on_trace); end
+end
+
+---total aborts, and aborts in the last full 10s window (nil until one has passed).
+function jitlog.counts()
+    roll();
+    return naborts, last_window;
 end
 
 local function sorted(t)

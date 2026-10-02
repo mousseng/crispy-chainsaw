@@ -189,8 +189,9 @@ local Sheet = {};
 Sheet.__index = Sheet;
 
 ---@param evicts boolean whether a full sheet gives up its least recently drawn cell
-local function new_sheet(name, evicts)
-    local sh = setmetatable({ name = name, evicts = evicts }, Sheet);
+---@param bitmap fun(key): string|nil the client's bitmap data for an icon
+local function new_sheet(name, evicts, bitmap)
+    local sh = setmetatable({ name = name, evicts = evicts, bitmap = bitmap }, Sheet);
     sh:reset();
     return sh;
 end
@@ -267,10 +268,10 @@ function Sheet:flush()
     self.npending = 0;
 end
 
----finds or allocates the cell for key; bitmap() supplies its data when it
----isn't in the sheet yet.
+---finds or allocates the cell for key; the sheet's bitmap(key) supplies its
+---data when it isn't in the sheet yet.
 ---@return integer|nil cell
-function Sheet:lookup(key, bitmap)
+function Sheet:lookup(key)
     local cell = self.key_cell[key];
     if (cell == false) then return nil; end
     if (cell ~= nil) then
@@ -279,7 +280,7 @@ function Sheet:lookup(key, bitmap)
     end
     if (self.npending >= BUDGET) then return nil; end
 
-    local src = bitmap();
+    local src = self.bitmap(key);
     if (src == nil) then
         self.key_cell[key] = false;
         return nil;
@@ -312,25 +313,35 @@ function Sheet:draw(r, cell, x, y, size, color)
     r.image(self.tex, x, y, size, size, color, u0, v0, u1, v1);
 end
 
+local resource = nil;
+
+-- per-sheet bitmap sources, shared rather than a closure per lookup: luajit
+-- can't compile creating a closure, and icons are looked up every frame.
+local function item_bitmap(id)
+    resource = resource or AshitaCore:GetResourceManager();
+    local item = resource:GetItemById(id);
+    return item and item.Bitmap or nil;
+end
+
+local function status_bitmap(id)
+    resource = resource or AshitaCore:GetResourceManager();
+    local icon = resource:GetStatusIconByIndex(id);
+    return icon and icon.Bitmap or nil;
+end
+
 local sheets = {
-    items  = new_sheet('items', true),
-    status = new_sheet('status', false),
+    items  = new_sheet('items', true, item_bitmap),
+    status = new_sheet('status', false, status_bitmap),
 };
 
 --[[ api ]]--
-
-local resource = nil;
 
 ---draws an item's icon at (x, y), size px square. returns false if it isn't
 ---available (yet: new icons can take a frame or two to arrive).
 ---@return boolean drawn
 function icons.item(r, id, x, y, size, color)
     local sh = sheets.items;
-    local cell = sh:lookup(id, function ()
-        resource = resource or AshitaCore:GetResourceManager();
-        local item = resource:GetItemById(id);
-        return item and item.Bitmap or nil;
-    end);
+    local cell = sh:lookup(id);
     if (cell == nil) then return false; end
     sh:draw(r, cell, x, y, size, color);
     return true;
@@ -341,11 +352,7 @@ end
 ---@return boolean drawn
 function icons.status(r, id, x, y, size, color)
     local sh = sheets.status;
-    local cell = sh:lookup(id, function ()
-        resource = resource or AshitaCore:GetResourceManager();
-        local icon = resource:GetStatusIconByIndex(id);
-        return icon and icon.Bitmap or nil;
-    end);
+    local cell = sh:lookup(id);
     if (cell == nil) then return false; end
     sh:draw(r, cell, x, y, size, color);
     return true;

@@ -342,11 +342,19 @@ local unlock_label = {}; -- component name -> text object, created on demand
 
 ---whether any active condition hides the component: its own `hide` entry for
 ---the condition if it has one, else the global setting.
+local conds = nil; -- the condition names, from the first state seen
+
 local function hidden(c, state)
     if (state == nil) then return false; end
+    if (conds == nil) then
+        -- once: moonjit can't compile pairs(), and this runs every frame
+        conds = {};
+        for cond in pairs(state) do conds[#conds + 1] = cond; end
+    end
     local own, global = c.ctx.settings.hide, settings.hide;
-    for cond, on in pairs(state) do
-        if (on) then
+    for i = 1, #conds do
+        local cond = conds[i];
+        if (state[cond]) then
             local h = own and own[cond];
             if (h == nil) then h = global and global[cond]; end
             if (h) then return true; end
