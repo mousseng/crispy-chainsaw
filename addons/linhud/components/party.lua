@@ -46,6 +46,10 @@ for i = 0, 5 do
         leader = false, alliance_leader = false, sync = false,
         status = {}, nstatus = 0, status_lines = 0,
         name_text = nil, zone_text = nil, hp_num = nil, mp_num = nil, tp_num = nil, job_num = nil,
+        -- bar trails (tp's as a fraction of 3000); fresh: jump them to the
+        -- current values rather than animate from whoever was here before.
+        sid = 0, fresh = true,
+        hp_trail = widgets.trail_new(), mp_trail = widgets.trail_new(), tp_trail = widgets.trail_new(),
     };
 end
 local count = 0;
@@ -136,6 +140,8 @@ local function read_member_status(m, sid)
     end
 end
 
+local trail_reset, trail_step = widgets.trail_reset, widgets.trail_step;
+
 local function poll()
     local p = AshitaCore:GetMemoryManager():GetParty();
     if (p == nil) then count = 0; return; end
@@ -154,7 +160,11 @@ local function poll()
             local sid = p:GetMemberServerId(i);
             m.name = p:GetMemberName(i);
             local zone = p:GetMemberZone(i);
+            local was_in_zone = m.in_zone;
             m.in_zone = zone == my_zone;
+            if (sid ~= m.sid or not was_in_zone) then
+                m.sid, m.fresh = sid, true;
+            end
             set_zone(m, zone);
             m.target_index = m.in_zone and p:GetMemberTargetIndex(i) or 0;
             m.leader = sid ~= 0 and sid == party_leader;
@@ -173,6 +183,8 @@ local function poll()
             else
                 m.nstatus = 0; -- only reported for members in our zone
             end
+        else
+            m.sid = 0; -- whoever joins this slot next starts fresh, even if it's them again
         end
     end
 end
@@ -182,6 +194,25 @@ local function poll_targets()
     cursor_slot = party_cursor();
 end
 
+---moves each member's bar trails. hp and mp trail both ways; tp only
+---trails drops (a weaponskill), since it rises on every swing.
+local function step_trails(dt)
+    for i = 0, count - 1 do
+        local m = members[i];
+        local tpf = m.tp / 3000;
+        if (m.fresh) then
+            m.fresh = false;
+            trail_reset(m.hp_trail, m.hpp);
+            trail_reset(m.mp_trail, m.mpp);
+            trail_reset(m.tp_trail, tpf);
+        else
+            trail_step(m.hp_trail, m.hpp, dt, true);
+            trail_step(m.mp_trail, m.mpp, dt, true);
+            trail_step(m.tp_trail, tpf, dt, false);
+        end
+    end
+end
+
 function party.update(ctx, dt)
     since_poll = since_poll + dt;
     clock = (clock + dt) % TP_SCROLL;
@@ -189,6 +220,7 @@ function party.update(ctx, dt)
         since_poll = 0;
         poll();
     end
+    step_trails(dt);
     poll_targets();
 end
 
@@ -314,12 +346,13 @@ function party.draw(r, ctx, x, y)
         if (m.in_zone) then
             local hpc = hp_color(m.hpp);
             -- critical hp glows red; not when dead, where it would just outline an empty bar.
-            bar(r, hx, by, HP_W * s, BAR_H * s, m.hpp, hpc, (m.hpp < 0.25 and m.hp > 0) and c('hp_crit') or nil);
-            bar(r, mx, by, MP_W * s, BAR_H * s, m.mpp, c('mp'));
+            bar(r, hx, by, HP_W * s, BAR_H * s, m.hpp, hpc, (m.hpp < 0.25 and m.hp > 0) and c('hp_crit') or nil, m.hp_trail.shown);
+            bar(r, mx, by, MP_W * s, BAR_H * s, m.mpp, c('mp'), nil, m.mp_trail.shown);
             -- 0..1000 fills the bar; 1000..3000 fills a second layer over it.
-            local full = m.tp >= 1000;
+            -- the trail splits the same way, so a weaponskill's loss shows on both.
+            local full, tps = m.tp >= 1000, m.tp_trail.shown * 3000;
             bar(r, tx, by, TP_W * s, BAR_H * s, min(m.tp, 1000) / 1000, full and c('tp_full') or c('tp'), full and c('tp_full') or nil,
-                (m.tp - 1000) / 2000, c('tp_over'), c('tp_over_alt'), tp_phase);
+                min(tps, 1000) / 1000, (m.tp - 1000) / 2000, c('tp_over'), c('tp_over_alt'), tp_phase, (tps - 1000) / 2000);
 
             m.hp_num = m.hp_num or text.number('number');
             m.mp_num = m.mp_num or text.number('number');

@@ -31,6 +31,10 @@ end
 local main, sub = new_info(), new_info();
 local locked = false;
 
+-- the main target's hp bar trail, and the target it belongs to: a new target
+-- (or the same one again after a break) starts at its hp, not from the last one's.
+local trail, trail_idx = widgets.trail_new(), 0;
+
 -- alliance members' server ids and entity indices, for name colours.
 local party_sid, party_idx = {}, {};
 local since_poll = POLL;
@@ -93,6 +97,12 @@ function target.update(ctx, dt)
     local m, s = targets.indices();
     read(main, m);
     read(sub, s ~= m and s or 0); -- picking the main target itself: one entry is enough
+    if (main.index ~= trail_idx) then
+        trail_idx = main.index;
+        widgets.trail_reset(trail, main.hpp / 100);
+    else
+        widgets.trail_step(trail, main.hpp / 100, dt, true);
+    end
     locked = main.index ~= 0 and targets.locked();
 end
 
@@ -138,7 +148,7 @@ function target.draw(r, ctx, x, y)
     if (has_main) then
         local frac = main.hpp / 100;
         local hpc = widgets.hp_color(frac);
-        widgets.bar(r, lx, my + BAR_Y * s, rx - lx, BAR_H * s, frac, hpc);
+        widgets.bar(r, lx, my + BAR_Y * s, rx - lx, BAR_H * s, frac, hpc, nil, trail.shown);
 
         main.hp_num = main.hp_num or text.number('number');
         main.dist_num = main.dist_num or text.number('number');
