@@ -11,15 +11,17 @@
 * doesn't move at all while limit points are being earned.
 --]]
 
-local render = require('ui.render');
-local text   = require('ui.text');
-local theme  = require('ui.theme');
+local render  = require('ui.render');
+local text    = require('ui.text');
+local theme   = require('ui.theme');
+local widgets = require('ui.widgets');
 
 local POLL     = 0.25; -- seconds between reads of exp and rate updates
 local WINDOW   = 3600; -- rate is measured over the last hour...
 local MIN_SPAN = 60;   -- ...but over at least a minute, so the first kill doesn't read as a huge rate
 local GAP      = 8;    -- from the bar's centre to each piece of text, logical px
 local MIN_W    = 280;  -- smallest width '55,999 / 56,000' fits half of, logical px
+local HOLD     = 1.5;  -- seconds a gain (or loss) shows before the fill catches up
 
 -- 0x02D (battle message) ids that report exp or limit points gained, as param 1.
 local EXP_MESSAGES = { [8] = true, [105] = true, [253] = true, [371] = true, [372] = true };
@@ -30,6 +32,10 @@ local cur, need, frac = -1, -1, 0;
 local ratio_str, rate, rate_str = '', -1, '';
 local ratio_num, rate_num = nil, nil;
 local since_poll = POLL;
+
+-- the fill's trail. fresh: jump it to frac rather than animate, after a level
+-- up or down (exp needed changed), where the bar wraps around.
+local trail, fresh = widgets.trail_new(), true;
 
 -- gains inside the window, oldest first: a queue in parallel arrays.
 local g_time, g_amount = {}, {};
@@ -60,6 +66,7 @@ local function poll()
     if (player == nil) then return; end
     local c, n = player:GetExpCurrent(), player:GetExpNeeded();
     if (c ~= cur or n ~= need) then
+        if (n ~= need) then fresh = true; end
         cur, need = c, n;
         frac = n > 0 and math.min(c / n, 1) or 0;
         ratio_str = ('%s / %s'):format(commas(c), commas(n));
@@ -79,6 +86,12 @@ function exp.update(ctx, dt)
     if (since_poll >= POLL) then
         since_poll = 0;
         poll();
+    end
+    if (fresh) then
+        fresh = false;
+        widgets.trail_reset(trail, frac);
+    else
+        widgets.trail_step(trail, frac, dt, true, HOLD);
     end
 end
 
@@ -118,6 +131,17 @@ function exp.measure(ctx)
     return math.max(MIN_W, ctx.settings.width) * ctx.scale, h;
 end
 
+---the tab filled to f. measured along the middle of the slants (l, rr: their
+---widths), so a sliver of progress doesn't vanish into the short side's
+---corner. full is full.
+local function fill(r, x, y, w, h, l, rr, f, color, flip)
+    if (f <= 0) then return; end
+    local fw = f >= 1 and w or (l * 0.5 + (w - (l + rr) * 0.5) * f);
+    r.push_clip(x, y, fw, h);
+    r.nineslice('tab', x, y, w, h, color, flip);
+    r.pop_clip();
+end
+
 function exp.draw(r, ctx, x, y)
     local w, h = exp.measure(ctx);
     if (w == 0) then return 0, 0; end
@@ -129,14 +153,14 @@ function exp.draw(r, ctx, x, y)
     local cx = x + w * 0.5;
 
     r.nineslice('tab', x, y, w, h, c('panel_bg'), flip);
-    if (frac > 0) then
-        -- measured along the middle of the slants, so a sliver of progress
-        -- doesn't vanish into the short side's corner. full is full.
-        local fw = frac >= 1 and w or (l * 0.5 + (w - (l + rr) * 0.5) * frac);
-        r.push_clip(x, y, fw, h);
-        r.nineslice('tab', x, y, w, h, c('exp'), flip);
-        r.pop_clip();
+    -- the trail's stretch (a gain, or a loss on death) under the fill, as on
+    -- the party bars.
+    local shown, lo = trail.shown, frac;
+    if (shown ~= frac) then
+        fill(r, x, y, w, h, l, rr, math.max(frac, shown), c(shown > frac and 'bar_loss' or 'bar_gain'), flip);
+        lo = math.min(frac, shown);
     end
+    fill(r, x, y, w, h, l, rr, lo, c('exp'), flip);
     r.nineslice('tab_border', x, y, w, h, c('panel_border'), flip);
 
     ratio_num = ratio_num or text.number('exp');

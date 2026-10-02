@@ -26,11 +26,12 @@ function widgets.trail_reset(t, v)
 end
 
 ---advances a trail towards v. gains: whether rises animate too (false: they
----show at once, and only drops trail). each change restarts the hold, so a
----burst of hits builds one stretch rather than several.
-function widgets.trail_step(t, v, dt, gains)
+---show at once, and only drops trail). hold: seconds to wait before easing,
+---default TRAIL_HOLD. each change restarts the hold, so a burst of hits
+---builds one stretch rather than several.
+function widgets.trail_step(t, v, dt, gains, hold)
     if (v ~= t.last) then
-        t.last, t.hold = v, TRAIL_HOLD;
+        t.last, t.hold = v, hold or TRAIL_HOLD;
     end
     if (not gains and v > t.shown) then
         t.shown = v;
