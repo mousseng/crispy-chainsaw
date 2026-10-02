@@ -190,7 +190,10 @@ end
 
 -- layout in logical pixels. each row: name and job on top, bars, then values
 -- under the bars (as ffxiv does), so nothing has to share a line with a number.
-local PAD, ICON_W, ROW_H, ROW_GAP = 8, 16, 40, 2;
+local PAD, ROW_H, ROW_GAP = 8, 40, 2;
+-- leader / sync marks sit before the name like leading glyphs: their centre
+-- line, and the gap after each.
+local MARK_Y, MARK_GAP = 7, 3;
 local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 17, 23;
 -- status icons: lines of them under the bars, as wide as the bars.
 local STATUS_S, STATUS_GAP, STATUS_Y = 16, 2, ROW_H - 1;
@@ -226,7 +229,7 @@ function party.measure(ctx)
         return 0, 0;
     end
     local s = ctx.scale;
-    return (PAD * 2 + ICON_W + HP_W + MP_W + TP_W + BAR_GAP * 2) * s, layout(ctx) * s;
+    return (PAD * 2 + HP_W + MP_W + TP_W + BAR_GAP * 2) * s, layout(ctx) * s;
 end
 
 function party.command(ctx, args)
@@ -241,6 +244,16 @@ function party.command(ctx, args)
     return true, ('party status lines: %d (%d icons each)'):format(ctx.settings.status_lines or 2, PER_LINE);
 end
 
+---draws a mark sprite with its left edge at x, centred on cy. returns the x
+---the next mark (or the name) starts at.
+local function mark(r, name, x, cy, color, s)
+    local w = r.slot_size(name);
+    if (w == 0) then return x; end
+    local px = theme.slot(name).pivot[1];
+    r.sprite(name, x + w * px, cy, color);
+    return x + w + MARK_GAP * s;
+end
+
 function party.draw(r, ctx, x, y)
     local w, h = party.measure(ctx);
     if (w == 0) then
@@ -253,7 +266,7 @@ function party.draw(r, ctx, x, y)
     r.nineslice('panel', x, y, w, h, c('panel_bg'));
     r.nineslice('panel_border', x, y, w, h, c('panel_border'));
 
-    local hx = x + (PAD + ICON_W) * s;
+    local hx = x + PAD * s;
     local mx = hx + (HP_W + BAR_GAP) * s;
     local tx = mx + (MP_W + BAR_GAP) * s;
 
@@ -278,16 +291,18 @@ function party.draw(r, ctx, x, y)
             r.sprite('arrow_party', x - 3 * s, ry + ROW_H * 0.5 * s, c('party_target'));
         end
 
-        -- marks: leader on the name line, sync on the bar line
-        local ix = x + (PAD + ICON_W * 0.5) * s;
+        -- marks lead the name; each pushes it right. the name is drawn at
+        -- m.name_x in the text pass.
+        local nx, my = hx, ry + MARK_Y * s;
         if (m.alliance_leader) then
-            r.sprite('mark_alliance_leader', ix, ry + 7 * s, c('alliance_lead'));
+            nx = mark(r, 'mark_alliance_leader', nx, my, c('alliance_lead'), s);
         elseif (m.leader) then
-            r.sprite('mark_leader', ix, ry + 7 * s, c('leader'));
+            nx = mark(r, 'mark_leader', nx, my, c('leader'), s);
         end
         if (m.sync) then
-            r.sprite('mark_sync', ix, by + BAR_H * 0.5 * s, c('sync'));
+            nx = mark(r, 'mark_sync', nx, my, c('sync'), s);
         end
+        m.name_x = nx;
 
         if (m.in_zone) then
             local hpc = hp_color(m.hpp);
@@ -339,9 +354,10 @@ function party.draw(r, ctx, x, y)
             color = c('hp_crit');
         end
 
+        local nx = m.name_x or hx;
         local job_w = m.in_zone and m.job_num and m.job_num:size() or 0;
-        r.push_clip(hx, ry - 2 * s, (tx + TP_W * s) - hx - job_w - 6 * s, ROW_H * s);
-        m.name_text:draw(hx, ry, color);
+        r.push_clip(nx, ry - 2 * s, (tx + TP_W * s) - nx - job_w - 6 * s, ROW_H * s);
+        m.name_text:draw(nx, ry, color);
         r.pop_clip();
 
         if (not m.in_zone and m.zone_str ~= '') then
