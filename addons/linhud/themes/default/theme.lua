@@ -22,7 +22,7 @@ return {
         mp            = 0xFFE0C35F,
         tp            = 0xFFFFFFFF, -- white until 1000, so a ready weaponskill (tp_full) stands out
         tp_full       = 0xFF9CD2FF,
-        tp_over       = 0xFFF07AC8, -- the second layer, 1000..3000: pulses pink <-> purple
+        tp_over       = 0xFFF07AC8, -- the second layer, 1000..3000: a scrolling gradient of these two
         tp_over_alt   = 0xFF9A6AF0,
         pet           = 0xFFC08FE0,
         exp           = 0xFFB89AF0,

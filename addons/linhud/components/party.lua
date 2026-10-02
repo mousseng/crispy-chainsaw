@@ -50,9 +50,11 @@ for i = 0, 5 do
 end
 local count = 0;
 local since_poll = POLL;
-local clock = 0; -- seconds, for animation
+local clock = 0; -- seconds into the tp gradient's scroll cycle
 
-local TP_PULSE = 2; -- seconds per pink -> purple -> pink cycle
+-- tp past 1000 is a second bar layer: a gradient of tp_over and tp_over_alt
+-- scrolling along it.
+local TP_SCROLL = 2; -- seconds for the gradient to move one bar width
 
 -- target state, read every frame.
 local target_index, subtarget_index, cursor_slot = 0, 0, nil;
@@ -182,7 +184,7 @@ end
 
 function party.update(ctx, dt)
     since_poll = since_poll + dt;
-    clock = (clock + dt) % TP_PULSE;
+    clock = (clock + dt) % TP_SCROLL;
     if (since_poll >= POLL) then
         since_poll = 0;
         poll();
@@ -203,7 +205,7 @@ local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 17, 23
 local STATUS_S, STATUS_GAP, STATUS_Y = 16, 2, ROW_H - 1;
 local PER_LINE = floor((HP_W + MP_W + TP_W + BAR_GAP * 2 + STATUS_GAP) / (STATUS_S + STATUS_GAP));
 
-local bar, hp_color, lerp_color = widgets.bar, widgets.hp_color, widgets.lerp_color;
+local bar, hp_color = widgets.bar, widgets.hp_color;
 
 -- each row's top and height in logical pixels, from the panel's top; rows
 -- grow to fit their status icons. set by layout().
@@ -271,8 +273,7 @@ function party.draw(r, ctx, x, y)
     r.nineslice('panel_border', x, y, w, h, c('panel_border'));
 
     local hx = x + PAD * s;
-    -- tp past 1000 pulses between two colours (a cosine, so it eases at each end).
-    local tp_over = lerp_color(c('tp_over'), c('tp_over_alt'), 0.5 - 0.5 * math.cos(clock / TP_PULSE * 2 * math.pi));
+    local tp_phase = clock / TP_SCROLL;
     local mx = hx + (HP_W + BAR_GAP) * s;
     local tx = mx + (MP_W + BAR_GAP) * s;
 
@@ -318,7 +319,7 @@ function party.draw(r, ctx, x, y)
             -- 0..1000 fills the bar; 1000..3000 fills a second layer over it.
             local full = m.tp >= 1000;
             bar(r, tx, by, TP_W * s, BAR_H * s, min(m.tp, 1000) / 1000, full and c('tp_full') or c('tp'), full and c('tp_full') or nil,
-                (m.tp - 1000) / 2000, tp_over);
+                (m.tp - 1000) / 2000, c('tp_over'), c('tp_over_alt'), tp_phase);
 
             m.hp_num = m.hp_num or text.number('number');
             m.mp_num = m.mp_num or text.number('number');

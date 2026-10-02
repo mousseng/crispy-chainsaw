@@ -2,19 +2,35 @@
 * small drawing helpers shared by components.
 --]]
 
-local bit   = require('bit');
 local theme = require('ui.theme');
 
-local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift;
-local floor = math.floor;
+local min = math.min;
 
 local widgets = {};
 
+---the bar shape filled to frac with a gradient cycling a -> b -> a once per
+---bar width, scrolled right by phase (0..1 of a cycle). drawn as four
+---half-cycle spans, enough to cover the bar at any phase.
+local function scroll_fill(r, x, y, w, h, frac, a, b, phase)
+    local half = w * 0.5;
+    local s = x - w + phase * w; -- start of the cycle that covers x
+    r.push_clip(x, y, w * min(frac, 1), h);
+    for k = 0, 3 do
+        local s0 = s + k * half;
+        local c0, c1 = a, b;
+        if (k % 2 == 1) then c0, c1 = b, a; end
+        r.push_clip(s0, y, half, h);
+        r.nineslice_hgrad('bar', x, y, w, h, c0, c1, s0, s0 + half);
+        r.pop_clip();
+    end
+    r.pop_clip();
+end
+
 ---a bar filled to frac (0..1). glow: colour of a glow around the bar, or nil
----for none; callers decide when (full tp, critical hp). over / over_color: an
----optional second layer filled to over (0..1) on top of the first (tp past
----1000).
-function widgets.bar(r, x, y, w, h, frac, color, glow, over, over_color)
+---for none; callers decide when (full tp, critical hp). over: an optional second
+---layer filled to over (0..1) on top of the first (tp past 1000), a gradient
+---of over_a and over_b scrolling by phase (see scroll_fill).
+function widgets.bar(r, x, y, w, h, frac, color, glow, over, over_a, over_b, phase)
     local c = theme.color;
     r.nineslice('bar_bg', x, y, w, h, c('bar_bg'));
     if (frac > 0) then
@@ -23,9 +39,7 @@ function widgets.bar(r, x, y, w, h, frac, color, glow, over, over_color)
         r.pop_clip();
     end
     if (over ~= nil and over > 0) then
-        r.push_clip(x, y, w * math.min(over, 1), h);
-        r.nineslice('bar', x, y, w, h, over_color);
-        r.pop_clip();
+        scroll_fill(r, x, y, w, h, over, over_a, over_b, phase or 0);
     end
     if (glow ~= nil) then
         r.nineslice('bar_glow', x, y, w, h, glow);
@@ -33,15 +47,6 @@ function widgets.bar(r, x, y, w, h, frac, color, glow, over, over_color)
     r.nineslice('bar_border', x, y, w, h, c('bar_border'));
 end
 
-local function lerp_channel(a, b, s, t)
-    local ca, cb = band(rshift(a, s), 0xFF), band(rshift(b, s), 0xFF);
-    return lshift(floor(ca + (cb - ca) * t + 0.5), s);
-end
-
----blends two argb colours, t 0..1.
-function widgets.lerp_color(a, b, t)
-    return bor(lerp_channel(a, b, 0, t), lerp_channel(a, b, 8, t), lerp_channel(a, b, 16, t), lerp_channel(a, b, 24, t));
-end
 
 ---@param frac number hp fraction, 0..1
 function widgets.hp_color(frac)

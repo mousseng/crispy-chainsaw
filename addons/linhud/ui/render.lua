@@ -88,8 +88,9 @@ local last_stats = { quads = 0, calls = 0 };
 
 --[[ records ]]--
 
-local K_QUAD, K_NINE, K_VGRAD, K_CLIP, K_TEX = 1, 2, 3, 4, 5;
+local K_QUAD, K_NINE, K_VGRAD, K_CLIP, K_TEX, K_HNINE = 1, 2, 3, 4, 5, 6;
 local Q_LEN, NINE_LEN, VGRAD_LEN, CLIP_LEN, TEX_LEN = 10, 18, 9, 5, 2; -- doubles per record
+local HNINE_LEN = NINE_LEN + 3; -- a nineslice record, then the gradient's left x, right x and right colour
 
 local rcap = 16384;
 local rec = ffi.new('double[?]', rcap);
@@ -195,6 +196,18 @@ local function quad_vgrad(x0, y0, x1, y1, u, v, top, bottom)
     q[2].color, q[3].color = cb, cb;
 end
 
+---recolours quads from..nquads-1 by x: cl at gl, cr at gr, interpolated
+---between and held beyond. vertex x is already clipped, so the colours match
+---wherever the clip cut. a loop on its own, so it compiles once.
+local function hgrad_quads(from, gl, gr, cl, cr)
+    local inv = 1 / max(gr - gl, 1e-6);
+    for j = from * 4, nquads * 4 - 1 do
+        local v = verts[j];
+        local t = max(0, min(1, (v.x + 0.5 - gl) * inv));
+        v.color = lerp_color(cl, cr, t) % 4294967296;
+    end
+end
+
 ---the nine quads of a nineslice record at i: its grid lines (x, y), their uvs
 ---and colour.
 local function quad_nine(r, i)
@@ -232,6 +245,11 @@ local function expand()
         elseif (k == K_TEX) then
             cmd_first[r[i + 1]] = nquads;
             i = i + TEX_LEN;
+        elseif (k == K_HNINE) then
+            local from = nquads;
+            quad_nine(r, i);
+            hgrad_quads(from, r[i + 18], r[i + 19], r[i + 17], r[i + 20]);
+            i = i + HNINE_LEN;
         elseif (k == K_CLIP) then
             ex_x0, ex_y0, ex_x1, ex_y1 = r[i + 1], r[i + 2], r[i + 3], r[i + 4];
             i = i + CLIP_LEN;
@@ -407,6 +425,23 @@ function render.nineslice(name, x, y, w, h, color, flip)
     local meta = theme.slot(name);
     if (meta == nil) then return; end
     rec_nine(meta, x, y, w, h, color, flip);
+end
+
+---a nineslice slot with a horizontal gradient: color at screen x gl, right
+---at gr, interpolated between and held beyond them. drawing a long gradient
+---as clipped spans of these gives it as many stops as it needs.
+function render.nineslice_hgrad(name, x, y, w, h, color, right, gl, gr)
+    local meta = theme.slot(name);
+    if (meta == nil) then return; end
+    if (nrec + TEX_LEN + HNINE_LEN > rcap) then grow_rec(nrec + TEX_LEN + HNINE_LEN); end
+    -- through render.nineslice, not rec_nine: a second caller of rec_nine
+    -- gives its return a second target, and that side exit has too many live
+    -- values for 32-bit moonjit. then turn the record into a gradient one.
+    render.nineslice(name, x, y, w, h, color);
+    local i = nrec - NINE_LEN;
+    rec[i] = K_HNINE;
+    rec[nrec], rec[nrec + 1], rec[nrec + 2] = gl, gr, fade(slot_color(meta, right));
+    nrec = nrec + 3;
 end
 
 ---a nineslice slot's fixed edges (left, top, right, bottom) in screen
