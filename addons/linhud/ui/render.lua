@@ -88,9 +88,9 @@ local last_stats = { quads = 0, calls = 0 };
 
 --[[ records ]]--
 
-local K_QUAD, K_NINE, K_VGRAD, K_CLIP, K_TEX, K_HNINE = 1, 2, 3, 4, 5, 6;
+local K_QUAD, K_NINE, K_VGRAD, K_CLIP, K_TEX, K_HNINE, K_VNINE = 1, 2, 3, 4, 5, 6, 7;
 local Q_LEN, NINE_LEN, VGRAD_LEN, CLIP_LEN, TEX_LEN = 10, 18, 9, 5, 2; -- doubles per record
-local HNINE_LEN = NINE_LEN + 3; -- a nineslice record, then the gradient's left x, right x and right colour
+local HNINE_LEN = NINE_LEN + 3; -- a nineslice record, then the gradient's left x, right x and right colour (top y, bottom y, bottom colour for K_VNINE)
 
 local rcap = 16384;
 local rec = ffi.new('double[?]', rcap);
@@ -208,6 +208,16 @@ local function hgrad_quads(from, gl, gr, cl, cr)
     end
 end
 
+---hgrad_quads by y: ct at gt, cb at gb.
+local function vgrad_quads(from, gt, gb, ct, cb)
+    local inv = 1 / max(gb - gt, 1e-6);
+    for j = from * 4, nquads * 4 - 1 do
+        local v = verts[j];
+        local t = max(0, min(1, (v.y + 0.5 - gt) * inv));
+        v.color = lerp_color(ct, cb, t) % 4294967296;
+    end
+end
+
 ---the nine quads of a nineslice record at i: its grid lines (x, y), their uvs
 ---and colour.
 local function quad_nine(r, i)
@@ -249,6 +259,11 @@ local function expand()
             local from = nquads;
             quad_nine(r, i);
             hgrad_quads(from, r[i + 18], r[i + 19], r[i + 17], r[i + 20]);
+            i = i + HNINE_LEN;
+        elseif (k == K_VNINE) then
+            local from = nquads;
+            quad_nine(r, i);
+            vgrad_quads(from, r[i + 18], r[i + 19], r[i + 17], r[i + 20]);
             i = i + HNINE_LEN;
         elseif (k == K_CLIP) then
             ex_x0, ex_y0, ex_x1, ex_y1 = r[i + 1], r[i + 2], r[i + 3], r[i + 4];
@@ -441,6 +456,18 @@ function render.nineslice_hgrad(name, x, y, w, h, color, right, gl, gr)
     local i = nrec - NINE_LEN;
     rec[i] = K_HNINE;
     rec[nrec], rec[nrec + 1], rec[nrec + 2] = gl, gr, fade(slot_color(meta, right));
+    nrec = nrec + 3;
+end
+
+---nineslice_hgrad running top to bottom: color at screen y gt, bottom at gb.
+function render.nineslice_vgrad(name, x, y, w, h, color, bottom, gt, gb)
+    local meta = theme.slot(name);
+    if (meta == nil) then return; end
+    if (nrec + TEX_LEN + HNINE_LEN > rcap) then grow_rec(nrec + TEX_LEN + HNINE_LEN); end
+    render.nineslice(name, x, y, w, h, color);
+    local i = nrec - NINE_LEN;
+    rec[i] = K_VNINE;
+    rec[nrec], rec[nrec + 1], rec[nrec + 2] = gt, gb, fade(slot_color(meta, bottom));
     nrec = nrec + 3;
 end
 

@@ -32,8 +32,7 @@ return {
         target        = 0xFFFFFFFF,
         subtarget     = 0xFF7FC8FF,
         party_target  = 0xFFFFB060,
-        row_target    = 0xA09CD2FF, -- the targeted member's row, fading left to right into row_target_fade
-        row_target_fade = 0x009CD2FF,
+        row_target_spin = 0xFF9CD2FF, -- the two stretches chasing round the target's outline
 
         leader        = 0xFFFFD860,
         alliance_lead = 0xFF5FA8FF,

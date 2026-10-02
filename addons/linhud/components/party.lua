@@ -55,10 +55,12 @@ end
 local count = 0;
 local since_poll = POLL;
 local clock = 0; -- seconds into the tp gradient's scroll cycle
+local spin = 0;  -- seconds into the target highlight's spin
 
 -- tp past 1000 is a second bar layer: a gradient of tp_over and tp_over_alt
 -- scrolling along it.
 local TP_SCROLL = 2; -- seconds for the gradient to move one bar width
+local SPIN_PERIOD, SPIN_TAIL = 2.5, 0.3; -- target highlight: seconds per lap, and the tail's share of the outline
 
 -- target state, read every frame.
 local target_index, subtarget_index, cursor_slot = 0, 0, nil;
@@ -216,6 +218,7 @@ end
 function party.update(ctx, dt)
     since_poll = since_poll + dt;
     clock = (clock + dt) % TP_SCROLL;
+    spin = (spin + dt) % SPIN_PERIOD;
     if (since_poll >= POLL) then
         since_poll = 0;
         poll();
@@ -318,22 +321,15 @@ function party.draw(r, ctx, x, y)
         local targeted = m.in_zone and m.target_index ~= 0;
 
         -- target / subtarget highlight behind the row, inset from the panel's
-        -- edge. the target's fades out across the first two thirds of the row.
-        -- a gradient only has stops at vertices, and the nineslice's stretched
-        -- middle spans nearly the whole row, so clip it to where the fade ends
-        -- (which puts vertices there) and draw the rest in the end colour.
+        -- edge. the target's is two spinners chasing each other round it.
         local hx0, hy0, hw, hh = x + 6 * s, ry + 2 * s, w - 12 * s, (row_h[i] - 4) * s;
         if (targeted and m.target_index == target_index) then
             -- grown by TARGET_OUT so it clears the row's contents
             local o = TARGET_OUT * s;
             local tx0, ty0, tw, th = hx0 - o, hy0 - o, hw + 2 * o, hh + 2 * o;
-            local fw = tw * 0.66;
-            r.push_clip(tx0, ty0, fw, th);
-            r.nineslice_hgrad('row_highlight', tx0, ty0, tw, th, c('row_target'), c('row_target_fade'), tx0, tx0 + fw);
-            r.pop_clip();
-            r.push_clip(tx0 + fw, ty0, tw - fw, th);
-            r.nineslice('row_highlight', tx0, ty0, tw, th, c('row_target_fade'));
-            r.pop_clip();
+            local pos, spin_c = spin / SPIN_PERIOD, c('row_target_spin');
+            widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos, SPIN_TAIL);
+            widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos + 0.5, SPIN_TAIL);
         end
         if (targeted and m.target_index == subtarget_index) then
             r.nineslice('panel_border', hx0 - 2 * s, hy0 - 2 * s, hw + 4 * s, hh + 4 * s, c('subtarget'));

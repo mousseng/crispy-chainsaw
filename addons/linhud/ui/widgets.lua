@@ -2,9 +2,11 @@
 * small drawing helpers shared by components.
 --]]
 
+local bit   = require('bit');
 local theme = require('ui.theme');
 
-local min, max, abs = math.min, math.max, math.abs;
+local min, max, abs, floor = math.min, math.max, math.abs, math.floor;
+local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift;
 
 local widgets = {};
 
@@ -104,6 +106,71 @@ function widgets.bar(r, x, y, w, h, frac, color, glow, shown, over, over_a, over
     r.nineslice('bar_border', x, y, w, h, c('bar_border'));
 end
 
+
+--[[ spinners ]]--
+
+-- the spinner being drawn, for tail_edge. upvalues rather than arguments, so
+-- few values are live at its exits (32-bit moonjit can't coalesce many).
+local sp_r, sp_name, sp_color = nil, nil, 0;
+local sp_x, sp_y, sp_w, sp_h = 0, 0, 0, 0;
+local sp_t0, sp_t1 = 0, 0;
+
+---color with its alpha scaled by k (0..1).
+local function faded(color, k)
+    local a = floor(band(rshift(color, 24), 0xFF) * k + 0.5);
+    return bor(band(color, 0x00FFFFFF), lshift(a, 24));
+end
+
+---the part of the spinner's tail (outline distance sp_t0, faded out, to sp_t1,
+---the head) on one edge. the edge runs from e0 to e1, where it is at screen
+---coordinate p0 and moves dir (1 or -1) per unit; q0..q1 is its band on the
+---other axis, which the drawing is clipped to. horiz: 1 for the top and
+---bottom edges, 0 for the sides. branch free: a tail that misses the edge is
+---drawn clipped to nothing, so the trace doesn't fork on where it is.
+local function tail_edge(e0, e1, p0, dir, q0, q1, horiz)
+    local d0 = max(sp_t0, e0);
+    local d1 = max(min(sp_t1, e1), d0);
+    local pa, pb = p0 + (d0 - e0) * dir, p0 + (d1 - e0) * dir;
+    local a, b = min(pa, pb), max(pa, pb);
+    -- outline distance at each end, from the screen coordinate
+    local inv = 1 / max(sp_t1 - sp_t0, 1e-6);
+    local ca = faded(sp_color, min(1, max(0, ((a - p0) * dir + e0 - sp_t0) * inv)));
+    local cb = faded(sp_color, min(1, max(0, ((b - p0) * dir + e0 - sp_t0) * inv)));
+    local v = 1 - horiz;
+    sp_r.push_clip(a * horiz + q0 * v, q0 * horiz + a * v, (b - a) * horiz + (q1 - q0) * v, (q1 - q0) * horiz + (b - a) * v);
+    if (horiz == 1) then
+        sp_r.nineslice_hgrad(sp_name, sp_x, sp_y, sp_w, sp_h, ca, cb, a, b);
+    else
+        sp_r.nineslice_vgrad(sp_name, sp_x, sp_y, sp_w, sp_h, ca, cb, a, b);
+    end
+    sp_r.pop_clip();
+end
+
+---a stretch of a nineslice slot chasing round its outline, fading out behind
+---its head. pos (0..1): how far round the head is, clockwise from the top
+---left; len (0..0.5): the tail's share of the outline. the corners go with
+---the top and bottom edges, so the sides are only their straight parts.
+function widgets.spinner(r, name, x, y, w, h, color, pos, len)
+    local el, et, er, eb = r.slot_edges(name);
+    -- the nineslice snaps its edges to whole pixels; match it
+    local x1, y1 = floor(x + w + 0.5), floor(y + h + 0.5);
+    x, y = floor(x + 0.5), floor(y + 0.5);
+    w, h = x1 - x, y1 - y;
+    local side = max(h - et - eb, 0);
+    local per = 2 * w + 2 * side;
+    sp_r, sp_name, sp_color = r, name, color;
+    sp_x, sp_y, sp_w, sp_h = x, y, w, h;
+    sp_t1 = pos % 1 * per;
+    sp_t0 = sp_t1 - min(len, 0.5) * per;
+    tail_edge(0, w, x, 1, y, y + et, 1);                                       -- top
+    tail_edge(w, w + side, y + et, 1, x1 - er, x1, 0);                         -- right
+    tail_edge(w + side, 2 * w + side, x1, -1, y1 - eb, y1, 1);                 -- bottom
+    tail_edge(2 * w + side, per, y1 - eb, -1, x, x + el, 0);                   -- left
+    -- a tail behind the start wraps onto the end: at most half the outline
+    -- back, so the bottom and left edges again, a lap earlier
+    tail_edge(w + side - per, 2 * w + side - per, x1, -1, y1 - eb, y1, 1);
+    tail_edge(2 * w + side - per, 0, y1 - eb, -1, x, x + el, 0);
+end
 
 ---@param frac number hp fraction, 0..1
 function widgets.hp_color(frac)
