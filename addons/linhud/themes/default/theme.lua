@@ -20,7 +20,7 @@ return {
         hp_low        = 0xFFE0C050,
         hp_crit       = 0xFFE05A4A,
         mp            = 0xFFE0C35F,
-        bar_loss      = 0xFFD84848, -- a bar's trail after a drop
+        bar_loss      = 0xFF8A2A2A, -- a bar's trail after a drop; dark, to stand apart from every fill (hp_crit too)
         bar_gain      = 0xFFCCFFB0, -- and after a rise; pale, to stand apart from hp
         tp            = 0xFFFFFFFF, -- white until 1000, so a ready weaponskill (tp_full) stands out
         tp_full       = 0xFF9CD2FF,
