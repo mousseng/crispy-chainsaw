@@ -240,6 +240,20 @@ function inventory.refresh()
     return true;
 end
 
+---the equipment slot (0 main .. 15 back, the bit in SLOTS) an item is worn
+---in, or nil.
+function inventory.worn_slot(e)
+    local inv = AshitaCore:GetMemoryManager():GetInventory();
+    if (inv == nil or not e.equipped) then return nil; end
+    -- each slot's Index packs the bag in the high byte, the bag slot in the low
+    local want = e.bag * 256 + e.index;
+    for slot = 0, 15 do
+        local eq = inv:GetEquippedItem(slot);
+        if (eq ~= nil and band(eq.Index, 0xFFFF) == want) then return slot; end
+    end
+    return nil;
+end
+
 ---@return table { items, max } (items sorted; don't modify)
 function inventory.bag(id)
     return bags[id];

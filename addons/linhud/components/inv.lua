@@ -193,9 +193,15 @@ local function item_menu(e)
         items[#items + 1] = { label = 'Trade', action = function () queue(('/item "%s" <t>'):format(info.name)); end };
     end
     if (info.gear and (in_inv or in_ward)) then
+        -- worn: its own slot becomes Unequip; any others (the other ear or
+        -- ring) still swap it across
+        -- TODO: test swapping across on retail
+        local worn = inventory.worn_slot(e);
         for b = 0, 15 do
             local slot = inventory.SLOTS[band(info.slots, bit.lshift(1, b))];
-            if (slot ~= nil) then
+            if (slot ~= nil and b == worn) then
+                items[#items + 1] = { label = 'Unequip ' .. slot, action = function () queue('/equip ' .. slot); end };
+            elseif (slot ~= nil) then
                 items[#items + 1] = { label = 'Equip ' .. slot, action = function ()
                     queue(('/equip %s "%s"'):format(slot, info.name));
                 end };
