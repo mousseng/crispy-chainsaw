@@ -32,8 +32,8 @@ return {
         target        = 0xFFFFFFFF,
         subtarget     = 0xFF7FC8FF,
         party_target  = 0xFFFFB060,
-        row_target    = 0x40FFFFFF, -- the targeted member's row, fading left to right into row_target_fade
-        row_target_fade = 0x00FFFFFF,
+        row_target    = 0xA09CD2FF, -- the targeted member's row, fading left to right into row_target_fade
+        row_target_fade = 0x009CD2FF,
 
         leader        = 0xFFFFD860,
         alliance_lead = 0xFF5FA8FF,
@@ -85,7 +85,7 @@ return {
         panel_border         = { gen = 'rounded_rect', radius = 6, stroke = 1, fill = false },
         panel_shadow         = { gen = 'shadow', radius = 6, blur = 10, knockout = true },
         panel_glow           = { gen = 'glow', radius = 6, blur = 6 },
-        row_highlight        = { gen = 'rounded_rect', radius = 5 },
+        row_highlight        = { gen = 'rounded_rect', radius = 5, stroke = 1, fill = false },
 
         bar                  = { gen = 'chamfer_rect', corner = 3 },
         bar_bg               = { gen = 'chamfer_rect', corner = 3 },

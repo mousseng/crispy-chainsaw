@@ -229,6 +229,7 @@ end
 -- layout in logical pixels. each row: name and job on top, bars, then values
 -- under the bars (as ffxiv does), so nothing has to share a line with a number.
 local PAD, ROW_H, ROW_GAP = 8, 40, 2;
+local TARGET_OUT = 2; -- how far the target highlight extends past the row's inset
 -- leader / sync marks sit before the name like leading glyphs: their centre
 -- line, and the gap after each.
 local MARK_Y, MARK_GAP = 7, 3;
@@ -323,12 +324,15 @@ function party.draw(r, ctx, x, y)
         -- (which puts vertices there) and draw the rest in the end colour.
         local hx0, hy0, hw, hh = x + 6 * s, ry + 2 * s, w - 12 * s, (row_h[i] - 4) * s;
         if (targeted and m.target_index == target_index) then
-            local fw = hw * 0.66;
-            r.push_clip(hx0, hy0, fw, hh);
-            r.nineslice_hgrad('row_highlight', hx0, hy0, hw, hh, c('row_target'), c('row_target_fade'), hx0, hx0 + fw);
+            -- grown by TARGET_OUT so it clears the row's contents
+            local o = TARGET_OUT * s;
+            local tx0, ty0, tw, th = hx0 - o, hy0 - o, hw + 2 * o, hh + 2 * o;
+            local fw = tw * 0.66;
+            r.push_clip(tx0, ty0, fw, th);
+            r.nineslice_hgrad('row_highlight', tx0, ty0, tw, th, c('row_target'), c('row_target_fade'), tx0, tx0 + fw);
             r.pop_clip();
-            r.push_clip(hx0 + fw, hy0, hw - fw, hh);
-            r.nineslice('row_highlight', hx0, hy0, hw, hh, c('row_target_fade'));
+            r.push_clip(tx0 + fw, ty0, tw - fw, th);
+            r.nineslice('row_highlight', tx0, ty0, tw, th, c('row_target_fade'));
             r.pop_clip();
         end
         if (targeted and m.target_index == subtarget_index) then
