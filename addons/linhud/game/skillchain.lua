@@ -215,9 +215,12 @@ function skillchain.tick(t)
     end
 end
 
--- made-up resonances for test(), in turn: two elements, four, then an
--- opener's two properties
-local TESTS = { { 'Fusion' }, { 'Light' }, { 'Fragmentation', 'Scission' } };
+-- made-up resonances for test(), in turn: two elements, four, an opener's two
+-- properties, then three (Disaster's: too wide in full, so shortened)
+local TESTS = {
+    { 'Fusion' }, { 'Light' }, { 'Fragmentation', 'Scission' },
+    { 'Transfixion', 'Scission', 'Gravitation' },
+};
 local next_test = 1;
 
 ---a made-up chain on the monster with server id `id`, to see it without a

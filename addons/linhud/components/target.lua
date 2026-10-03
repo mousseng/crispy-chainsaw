@@ -10,7 +10,8 @@
 * while the party has a skillchain going on the main target
 * (game/skillchain.lua), its resonance shows between the target and the
 * subtarget: each name in its elements' colours, and the window's countdown
-* (waiting, then open) with a bar. it goes once the window closes.
+* (waiting, then open) with a bar. it goes once the window closes. names
+* too wide for the row (a three-property opener) are shortened.
 * `/linhud target test` puts a made-up chain on the current target.
 --]]
 
@@ -41,7 +42,7 @@ local locked = false;
 -- the main target's skillchain record while its window is open, else nil
 local chain = nil;
 local clock = 0;
-local chain_labels = {}; -- resonance name -> text
+local chain_labels, chain_shorts = {}, {}; -- resonance name -> text, full and short
 local chain_time, chain_wait, chain_go = nil, nil, nil;
 local band_colors = {};
 
@@ -139,6 +140,13 @@ local BAR_H, BAR_Y, NUM_Y, MAIN_H = 8, 17, 24, 38;
 local SUB_H, SUB_GAP, SUB_BAR_W, SUB_BAR_H, MARK_W = 18, 6, 64, 5, 14;
 -- the skillchain: resonance names and the countdown, then the window's bar
 local CHAIN_H, CHAIN_BAR_Y, CHAIN_BAR_H, CHAIN_GAP, CHAIN_TIME_W = 22, 17, 4, 8, 70;
+-- resonance names shortened, for when the full ones don't fit. Light, Darkness,
+-- Radiance and Umbra always stand alone, so keep their names.
+local CHAIN_SHORT = {
+    Gravitation = 'Grav', Fragmentation = 'Frag', Distortion = 'Dist', Fusion = 'Fusion',
+    Compression = 'Comp', Liquefaction = 'Liquef', Induration = 'Indur', Reverberation = 'Reverb',
+    Transfixion = 'Transfix', Scission = 'Sciss', Detonation = 'Deton', Impaction = 'Impact',
+};
 
 function target.measure(ctx)
     local has_main, has_sub = main.index ~= 0, sub.index ~= 0;
@@ -150,6 +158,26 @@ function target.measure(ctx)
     if (chain ~= nil) then h = h + SUB_GAP + CHAIN_H; end
     if (has_sub) then h = h + SUB_H + (has_main and SUB_GAP or 0); end
     return W * ctx.scale, h * ctx.scale;
+end
+
+---the label for a resonance in `cache`, made from `str` the first time.
+local function chain_label(cache, name, str)
+    local l = cache[name];
+    if (l == nil) then
+        l = text.new({ text = str, size = 12 });
+        cache[name] = l;
+    end
+    return l;
+end
+
+---the width of the resonance's full names in a row, gaps between included.
+local function chain_width(res, s)
+    local w = 0;
+    for i = 1, #res do
+        local lw = chain_label(chain_labels, res[i], res[i]):size();
+        w = w + lw + CHAIN_GAP * s;
+    end
+    return w - CHAIN_GAP * s;
 end
 
 ---the main target's skillchain: its resonance names, each split into its
@@ -172,14 +200,14 @@ local function draw_chain(r, lx, rx, y, s)
     local _, sh = state:size();
     state:draw(rx - tw - 6 * s, cy - sh * 0.5, col, 'right');
 
-    r.push_clip(lx, y - 2 * s, rx - lx - CHAIN_TIME_W * s, (CHAIN_BAR_Y + 2) * s);
+    -- the names, shortened if they don't fit; still clipped, in case even those don't
+    local avail = rx - lx - CHAIN_TIME_W * s;
+    local short = chain_width(chain.resonance, s) > avail;
+    local cache = short and chain_shorts or chain_labels;
+    r.push_clip(lx, y - 2 * s, avail, (CHAIN_BAR_Y + 2) * s);
     local nx = lx;
     for _, name in ipairs(chain.resonance) do
-        local l = chain_labels[name];
-        if (l == nil) then
-            l = text.new({ text = name, size = 12 });
-            chain_labels[name] = l;
-        end
+        local l = chain_label(cache, name, short and (CHAIN_SHORT[name] or name) or name);
         local els = sc.ELEMENTS[name];
         local n = els and #els or 1;
         for i = 1, n do band_colors[i] = els and c(widgets.ELEMENT[els[i]]) or c('text'); end
