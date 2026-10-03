@@ -54,6 +54,9 @@ return {
 
         -- inventory item cells
         cell_bg       = 0x18FFFFFF,
+
+        -- treasure pool: an item the player is winning
+        loot_win      = 0xFFFFD860,
     },
 
     -- mapped onto gdifonts settings by ui/text.lua. sizes are logical pixels.
