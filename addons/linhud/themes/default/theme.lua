@@ -58,10 +58,12 @@ return {
         -- treasure pool: an item the player is winning
         loot_win      = 0xFFFFD860,
 
-        -- the target's skillchain: its window (waiting, then open), and each
-        -- element, for its resonance
+        -- the target's skillchain: its window (waiting, then open), the
+        -- "Chain!" before a burstable resonance, and each element, for its
+        -- resonance
         sc_wait       = 0xFFA0A4AC,
         sc_open       = 0xFF9CE07A,
+        sc_chain      = 0xFFFFD860,
         el_fire       = 0xFFFF6A4A,
         el_ice        = 0xFF8FE0FF,
         el_wind       = 0xFF7FE08A,

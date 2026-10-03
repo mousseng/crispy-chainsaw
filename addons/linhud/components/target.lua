@@ -10,8 +10,10 @@
 * while the party has a skillchain going on the main target
 * (game/skillchain.lua), its resonance shows between the target and the
 * subtarget: each name in its elements' colours, and the window's countdown
-* (waiting, then open) with a bar. it goes once the window closes. names
-* too wide for the row (a three-property opener) are shortened.
+* (waiting, then open) with a bar. a resonance made by a skillchain (one that
+* can be magic burst), rather than an opener's, is led by "Chain!". it goes
+* once the window closes. names too wide for the row (a three-property
+* opener) are shortened.
 * `/linhud target test` puts a made-up chain on the current target.
 --]]
 
@@ -43,7 +45,7 @@ local locked = false;
 local chain = nil;
 local clock = 0;
 local chain_labels, chain_shorts = {}, {}; -- resonance name -> text, full and short
-local chain_time, chain_wait, chain_go = nil, nil, nil;
+local chain_time, chain_wait, chain_go, chain_mark = nil, nil, nil, nil;
 local band_colors = {};
 
 -- the main target's hp bar trail, and the target it belongs to: a new target
@@ -170,9 +172,16 @@ local function chain_label(cache, name, str)
     return l;
 end
 
----the width of the resonance's full names in a row, gaps between included.
-local function chain_width(res, s)
-    local w = 0;
+---the "Chain!" lead for a burstable resonance.
+local function chain_lead()
+    chain_mark = chain_mark or text.new({ text = 'Chain!', size = 12 });
+    return chain_mark;
+end
+
+---the width of the resonance's full names in a row (after "Chain!" if
+---`chained`), gaps between included.
+local function chain_width(res, chained, s)
+    local w = chained and chain_lead():size() + CHAIN_GAP * s or 0;
     for i = 1, #res do
         local lw = chain_label(chain_labels, res[i], res[i]):size();
         w = w + lw + CHAIN_GAP * s;
@@ -202,10 +211,16 @@ local function draw_chain(r, lx, rx, y, s)
 
     -- the names, shortened if they don't fit; still clipped, in case even those don't
     local avail = rx - lx - CHAIN_TIME_W * s;
-    local short = chain_width(chain.resonance, s) > avail;
+    local short = chain_width(chain.resonance, chain.chained, s) > avail;
     local cache = short and chain_shorts or chain_labels;
     r.push_clip(lx, y - 2 * s, avail, (CHAIN_BAR_Y + 2) * s);
     local nx = lx;
+    if (chain.chained) then
+        local l = chain_lead();
+        local lw, lh = l:size();
+        l:draw(nx, cy - lh * 0.5, c('sc_chain'));
+        nx = nx + lw + CHAIN_GAP * s;
+    end
     for _, name in ipairs(chain.resonance) do
         local l = chain_label(cache, name, short and (CHAIN_SHORT[name] or name) or name);
         local els = sc.ELEMENTS[name];

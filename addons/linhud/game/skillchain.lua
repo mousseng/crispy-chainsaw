@@ -5,8 +5,9 @@
 * each monster the party has a chain going on gets a record of its resonance
 * (the opener's skillchain properties, or the skillchain made since) and the
 * window for the next step: a few seconds after the last step lands
-* (BASE_DELAY, plus the action's own `delay`), then open for BASE_WINDOW. a
-* miss leaves both alone. a monster is dropped once its window closes.
+* (BASE_DELAY, plus the action's own `delay`), then open for BASE_WINDOW.
+* whether the last step made a skillchain (and so can be magic burst) or only
+* opened one is kept too. a miss leaves all of it alone. a monster is dropped once its window closes.
 *
 * only the party's own actions count (members, trusts, and their pets). the
 * server sends some packets twice, so recent actions are remembered and
@@ -68,9 +69,10 @@ skillchain.ELEMENTS = {
     Umbra         = { 'Ice', 'Water', 'Earth', 'Dark' },
 };
 
----monster records, by server id: { resonance, since, opens, closes }.
----resonance: a list of names; since: when the step that set the window
----landed; opens, closes: the window.
+---monster records, by server id: { resonance, chained, since, opens, closes }.
+---resonance: a list of names; chained: true if the last step made a
+---skillchain (burstable), false for an opener; since: when the step that set
+---the window landed; opens, closes: the window.
 skillchain.mobs = {};
 
 local chain_spell = {}; -- actor server id -> time chain affinity / immanence runs out
@@ -146,13 +148,13 @@ local function chain_step(a, info, msgs)
     for _, act in ipairs(a.actions) do
         if (msgs ~= nil and not msgs[act.message]) then return; end -- not a chaining ws
         if (act.miss == 0) then
-            local resonance = info.attr; -- landed without a skillchain: a fresh opener
+            local resonance, chained = info.attr, false; -- landed without a skillchain: a fresh opener
             if (act.proc_message ~= nil) then
                 local sc = CHAINS[act.proc_message];
-                resonance = sc and { sc } or nil;
+                resonance, chained = sc and { sc } or nil, true;
             end
             if (resonance ~= nil) then
-                skillchain.mobs[a.target] = { resonance = resonance, since = t, opens = opens, closes = opens + BASE_WINDOW };
+                skillchain.mobs[a.target] = { resonance = resonance, chained = chained, since = t, opens = opens, closes = opens + BASE_WINDOW };
             end
         end
     end
@@ -215,10 +217,11 @@ function skillchain.tick(t)
     end
 end
 
--- made-up resonances for test(), in turn: two elements, four, an opener's two
--- properties, then three (Disaster's: too wide in full, so shortened)
+-- made-up resonances for test(), in turn: two elements, four (both chained),
+-- an opener's two properties, then three (Disaster's: too wide in full, so
+-- shortened)
 local TESTS = {
-    { 'Fusion' }, { 'Light' }, { 'Fragmentation', 'Scission' },
+    { 'Fusion', chained = true }, { 'Light', chained = true }, { 'Fragmentation', 'Scission' },
     { 'Transfixion', 'Scission', 'Gravitation' },
 };
 local next_test = 1;
@@ -227,7 +230,8 @@ local next_test = 1;
 ---party. each call shows the next of a few resonances.
 function skillchain.test(id)
     local t = skillchain.now();
-    skillchain.mobs[id] = { resonance = TESTS[next_test], since = t, opens = t + 2, closes = t + 2 + BASE_WINDOW };
+    local test = TESTS[next_test];
+    skillchain.mobs[id] = { resonance = test, chained = test.chained == true, since = t, opens = t + 2, closes = t + 2 + BASE_WINDOW };
     next_test = next_test % #TESTS + 1;
 end
 
