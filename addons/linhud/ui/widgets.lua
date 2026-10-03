@@ -179,4 +179,30 @@ function widgets.hp_color(frac)
     return theme.color('hp');
 end
 
+--[[ text ]]--
+
+-- element -> its palette key
+widgets.ELEMENT = {
+    Fire = 'el_fire', Ice = 'el_ice', Wind = 'el_wind', Earth = 'el_earth',
+    Thunder = 'el_thunder', Water = 'el_water', Light = 'el_light', Dark = 'el_dark',
+};
+
+---draws a text object split left to right into n equal bands, band i in
+---colors[i] (e.g. a resonance in the colours of its elements).
+---@return number w, number h
+function widgets.split_text(r, label, x, y, colors, n)
+    local w, h = label:size();
+    if (n <= 1) then
+        label:draw(x, y, colors[1]);
+        return w, h;
+    end
+    local band_w = w / n;
+    for i = 1, n do
+        r.push_clip(x + band_w * (i - 1), y - h, band_w, h * 3);
+        label:draw(x, y, colors[i]);
+        r.pop_clip();
+    end
+    return w, h;
+end
+
 return widgets;

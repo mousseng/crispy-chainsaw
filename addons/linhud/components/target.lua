@@ -6,9 +6,16 @@
 * monster) and, for monsters, who holds claim. locking on rings the panel in a
 * glow. entity state is read every frame (it's cheap and targets change
 * instantly); the party's ids, used for colouring, at 10hz.
+*
+* while the party has a skillchain going on the main target
+* (game/skillchain.lua), its resonance shows between the target and the
+* subtarget: each name in its elements' colours, and the window's countdown
+* (waiting, then open) with a bar. it goes once the window closes.
+* `/linhud target test` puts a made-up chain on the current target.
 --]]
 
 local bit     = require('bit');
+local sc      = require('game.skillchain');
 local targets = require('game.targets');
 local text    = require('ui.text');
 local theme   = require('ui.theme');
@@ -23,13 +30,20 @@ local target = {}; -- settings defaults: components/list.lua
 
 local function new_info()
     return {
-        index = 0, name = '', kind = 'name_npc', hpp = -1, dist = -1,
+        index = 0, sid = 0, name = '', kind = 'name_npc', hpp = -1, dist = -1,
         hpp_str = '', dist_str = '',
         name_text = nil, hp_num = nil, dist_num = nil,
     };
 end
 local main, sub = new_info(), new_info();
 local locked = false;
+
+-- the main target's skillchain record while its window is open, else nil
+local chain = nil;
+local clock = 0;
+local chain_labels = {}; -- resonance name -> text
+local chain_time, chain_wait, chain_go = nil, nil, nil;
+local band_colors = {};
 
 -- the main target's hp bar trail, and the target it belongs to: a new target
 -- (or the same one again after a break) starts at its hp, not from the last one's.
@@ -76,6 +90,7 @@ local function read(info, idx)
     if (name == nil or name == '') then return; end -- despawned
 
     info.index = idx;
+    info.sid = ent:GetServerId(idx);
     info.name = name;
     info.kind = kind_of(ent, idx);
     local hpp = ent:GetHPPercent(idx);
@@ -104,6 +119,15 @@ function target.update(ctx, dt)
         widgets.trail_step(trail, main.hpp / 100, dt, true);
     end
     locked = main.index ~= 0 and targets.locked();
+
+    clock = sc.now();
+    sc.tick(clock);
+    local m = main.index ~= 0 and sc.mobs[main.sid] or nil;
+    chain = (m ~= nil and clock <= m.closes) and m or nil;
+end
+
+function target.packet_in(ctx, e)
+    sc.packet_in(e);
 end
 
 --[[ drawing ]]--
@@ -113,6 +137,8 @@ end
 local W, PAD = 240, 8;
 local BAR_H, BAR_Y, NUM_Y, MAIN_H = 8, 17, 24, 38;
 local SUB_H, SUB_GAP, SUB_BAR_W, SUB_BAR_H, MARK_W = 18, 6, 64, 5, 14;
+-- the skillchain: resonance names and the countdown, then the window's bar
+local CHAIN_H, CHAIN_BAR_Y, CHAIN_BAR_H, CHAIN_GAP, CHAIN_TIME_W = 22, 17, 4, 8, 70;
 
 function target.measure(ctx)
     local has_main, has_sub = main.index ~= 0, sub.index ~= 0;
@@ -121,8 +147,48 @@ function target.measure(ctx)
     end
     local h = PAD * 2;
     if (has_main) then h = h + MAIN_H; end
+    if (chain ~= nil) then h = h + SUB_GAP + CHAIN_H; end
     if (has_sub) then h = h + SUB_H + (has_main and SUB_GAP or 0); end
     return W * ctx.scale, h * ctx.scale;
+end
+
+---the main target's skillchain: its resonance names, each split into its
+---elements' colours, then the window's state and seconds left, and its bar.
+local function draw_chain(r, lx, rx, y, s)
+    local c = theme.color;
+    local waiting = clock < chain.opens;
+    local col = c(waiting and 'sc_wait' or 'sc_open');
+    local left = waiting and chain.opens - clock or chain.closes - clock;
+    local span = waiting and chain.opens - chain.since or chain.closes - chain.opens;
+
+    chain_time = chain_time or text.number('number');
+    chain_wait = chain_wait or text.new({ text = 'wait', size = 11 });
+    chain_go = chain_go or text.new({ text = 'go!', size = 11 });
+    chain_time:set(('%.1f'):format(left));
+    local tw, th = chain_time:size();
+    local cy = y + (CHAIN_BAR_Y - 1) * 0.5 * s;
+    chain_time:draw(rx, cy - th * 0.5, col, 'right');
+    local state = waiting and chain_wait or chain_go;
+    local _, sh = state:size();
+    state:draw(rx - tw - 6 * s, cy - sh * 0.5, col, 'right');
+
+    r.push_clip(lx, y - 2 * s, rx - lx - CHAIN_TIME_W * s, (CHAIN_BAR_Y + 2) * s);
+    local nx = lx;
+    for _, name in ipairs(chain.resonance) do
+        local l = chain_labels[name];
+        if (l == nil) then
+            l = text.new({ text = name, size = 12 });
+            chain_labels[name] = l;
+        end
+        local els = sc.ELEMENTS[name];
+        local n = els and #els or 1;
+        for i = 1, n do band_colors[i] = els and c(widgets.ELEMENT[els[i]]) or c('text'); end
+        local _, lh = l:size();
+        nx = nx + widgets.split_text(r, l, nx, cy - lh * 0.5, band_colors, n) + CHAIN_GAP * s;
+    end
+    r.pop_clip();
+
+    widgets.bar(r, lx, y + CHAIN_BAR_Y * s, rx - lx, CHAIN_BAR_H * s, math.max(0, math.min(1, left / math.max(0.001, span))), col);
 end
 
 function target.draw(r, ctx, x, y)
@@ -142,7 +208,9 @@ function target.draw(r, ctx, x, y)
 
     local lx, rx = x + PAD * s, x + w - PAD * s;
     local my = y + PAD * s;
+    local ky = my + (MAIN_H + SUB_GAP) * s; -- the chain, under the main target
     local sy = my + (has_main and (MAIN_H + SUB_GAP) or 0) * s;
+    if (chain ~= nil) then sy = sy + (CHAIN_H + SUB_GAP) * s; end
 
     -- atlas pass
     if (has_main) then
@@ -164,6 +232,10 @@ function target.draw(r, ctx, x, y)
         widgets.bar(r, rx - SUB_BAR_W * s, cy - SUB_BAR_H * 0.5 * s, SUB_BAR_W * s, SUB_BAR_H * s, frac, widgets.hp_color(frac));
     end
 
+    if (chain ~= nil) then
+        draw_chain(r, lx, rx, ky, s);
+    end
+
     -- names last, clipped: the main name to the panel, the sub name to the
     -- space left of its bar.
     if (has_main) then
@@ -183,6 +255,19 @@ function target.draw(r, ctx, x, y)
     end
 
     return w, h;
+end
+
+--[[ commands ]]--
+
+---/linhud target test - a made-up skillchain on the current target; again
+---for another kind.
+function target.command(ctx, args)
+    if (args[1] == 'test') then
+        if (main.index == 0) then return true, 'target something first'; end
+        sc.test(main.sid);
+        return true, 'target: added a test chain';
+    end
+    return false;
 end
 
 return target;

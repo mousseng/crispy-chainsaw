@@ -57,6 +57,19 @@ return {
 
         -- treasure pool: an item the player is winning
         loot_win      = 0xFFFFD860,
+
+        -- the target's skillchain: its window (waiting, then open), and each
+        -- element, for its resonance
+        sc_wait       = 0xFFA0A4AC,
+        sc_open       = 0xFF9CE07A,
+        el_fire       = 0xFFFF6A4A,
+        el_ice        = 0xFF8FE0FF,
+        el_wind       = 0xFF7FE08A,
+        el_earth      = 0xFFD8B060,
+        el_thunder    = 0xFFC08FFF,
+        el_water      = 0xFF5F9CFF,
+        el_light      = 0xFFFFF6C0,
+        el_dark       = 0xFFA080C8,
     },
 
     -- mapped onto gdifonts settings by ui/text.lua. sizes are logical pixels.
