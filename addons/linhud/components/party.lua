@@ -241,7 +241,17 @@ local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 17, 23
 local STATUS_S, STATUS_GAP, STATUS_Y = 16, 2, ROW_H - 1;
 local PER_LINE = floor((HP_W + MP_W + TP_W + BAR_GAP * 2 + STATUS_GAP) / (STATUS_S + STATUS_GAP));
 
-local bar, hp_color = widgets.bar, widgets.hp_color;
+local bar = widgets.bar;
+
+---the in-game party list's bands, on whole percents: 76+ green, 51..75
+---yellow, 26..50 orange, 0..25 red.
+---@param frac number hp fraction, 0..1
+local function hp_color(frac)
+    if (frac <= 0.25) then return theme.color('hp_crit'); end
+    if (frac <= 0.5) then return theme.color('hp_warn'); end
+    if (frac <= 0.75) then return theme.color('hp_low'); end
+    return theme.color('hp');
+end
 
 -- each row's top and height in logical pixels, from the panel's top; rows
 -- grow to fit their status icons. set by layout().
@@ -354,7 +364,7 @@ function party.draw(r, ctx, x, y)
         if (m.in_zone) then
             local hpc = hp_color(m.hpp);
             -- critical hp glows red; not when dead, where it would just outline an empty bar.
-            bar(r, hx, by, HP_W * s, BAR_H * s, m.hpp, hpc, (m.hpp < 0.25 and m.hp > 0) and c('hp_crit') or nil, m.hp_trail.shown);
+            bar(r, hx, by, HP_W * s, BAR_H * s, m.hpp, hpc, (m.hpp <= 0.25 and m.hp > 0) and c('hp_crit') or nil, m.hp_trail.shown);
             bar(r, mx, by, MP_W * s, BAR_H * s, m.mpp, c('mp'), nil, m.mp_trail.shown);
             -- 0..1000 fills the bar; 1000..3000 fills a second layer over it.
             -- the trail splits the same way, so a weaponskill's loss shows on both.

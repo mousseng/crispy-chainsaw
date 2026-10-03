@@ -18,6 +18,7 @@ return {
         bar_border    = 0x30FFFFFF,
         hp            = 0xFF7FD35F,
         hp_low        = 0xFFE0C050,
+        hp_warn       = 0xFFE8883C, -- orange, between hp_low and hp_crit (party frame's four bands)
         hp_crit       = 0xFFE05A4A,
         mp            = 0xFFE0C35F,
         bar_loss      = 0xFF8A2A2A, -- a bar's trail after a drop; dark, to stand apart from every fill (hp_crit too)
