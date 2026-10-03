@@ -34,6 +34,7 @@ return {
         subtarget     = 0xFF7FC8FF,
         party_target  = 0xFFFFB060,
         row_target_spin = 0xFF9CD2FF, -- the two stretches chasing round the target's outline
+        row_subtarget_spin = 0xFFFFC94A, -- and the subtarget's (<stpt> / <stal>)
 
         leader        = 0xFFFFD860,
         alliance_lead = 0xFF5FA8FF,

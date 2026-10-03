@@ -331,18 +331,21 @@ function party.draw(r, ctx, x, y)
         local targeted = m.in_zone and m.target_index ~= 0;
 
         -- target / subtarget highlight behind the row, inset from the panel's
-        -- edge. the target's is two spinners chasing each other round it.
-        local hx0, hy0, hw, hh = x + 6 * s, ry + 2 * s, w - 12 * s, (row_h[i] - 4) * s;
+        -- edge and grown by TARGET_OUT so it clears the row's contents: two
+        -- spinners chasing each other round it. the subtarget's run a quarter
+        -- lap ahead, so on a row that is both the two pairs interleave.
+        local o = TARGET_OUT * s;
+        local tx0, ty0, tw, th = x + 6 * s - o, ry + 2 * s - o, w - 12 * s + 2 * o, (row_h[i] - 4) * s + 2 * o;
+        local pos = spin / SPIN_PERIOD;
         if (targeted and m.target_index == target_index) then
-            -- grown by TARGET_OUT so it clears the row's contents
-            local o = TARGET_OUT * s;
-            local tx0, ty0, tw, th = hx0 - o, hy0 - o, hw + 2 * o, hh + 2 * o;
-            local pos, spin_c = spin / SPIN_PERIOD, c('row_target_spin');
+            local spin_c = c('row_target_spin');
             widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos, SPIN_TAIL);
             widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos + 0.5, SPIN_TAIL);
         end
         if (targeted and m.target_index == subtarget_index) then
-            r.nineslice('panel_border', hx0 - 2 * s, hy0 - 2 * s, hw + 4 * s, hh + 4 * s, c('subtarget'));
+            local spin_c = c('row_subtarget_spin');
+            widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos + 0.25, SPIN_TAIL);
+            widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos + 0.75, SPIN_TAIL);
         end
         if (cursor_slot == i) then
             r.sprite('arrow_party', x - 3 * s, ry + ROW_H * 0.5 * s, c('party_target'));
