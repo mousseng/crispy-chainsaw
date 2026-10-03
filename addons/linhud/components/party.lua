@@ -330,10 +330,11 @@ function party.draw(r, ctx, x, y)
         local by = ry + BAR_Y * s;
         local targeted = m.in_zone and m.target_index ~= 0;
 
-        -- target / subtarget highlight behind the row, inset from the panel's
-        -- edge and grown by TARGET_OUT so it clears the row's contents: two
-        -- spinners chasing each other round it. the subtarget's run a quarter
-        -- lap ahead, so on a row that is both the two pairs interleave.
+        -- target / subtarget / party cursor highlight behind the row, inset
+        -- from the panel's edge and grown by TARGET_OUT so it clears the row's
+        -- contents: two spinners chasing each other round it. the subtarget's
+        -- run a quarter lap ahead, so on a row that is both the two pairs
+        -- interleave.
         local o = TARGET_OUT * s;
         local tx0, ty0, tw, th = x + 6 * s - o, ry + 2 * s - o, w - 12 * s + 2 * o, (row_h[i] - 4) * s + 2 * o;
         local pos = spin / SPIN_PERIOD;
@@ -342,13 +343,12 @@ function party.draw(r, ctx, x, y)
             widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos, SPIN_TAIL);
             widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos + 0.5, SPIN_TAIL);
         end
-        if (targeted and m.target_index == subtarget_index) then
+        -- the party list's cursor gets the subtarget's: it's usually picking one,
+        -- and the two on one row draw once.
+        if ((targeted and m.target_index == subtarget_index) or cursor_slot == i) then
             local spin_c = c('row_subtarget_spin');
             widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos + 0.25, SPIN_TAIL);
             widgets.spinner(r, 'row_highlight', tx0, ty0, tw, th, spin_c, pos + 0.75, SPIN_TAIL);
-        end
-        if (cursor_slot == i) then
-            r.sprite('arrow_party', x - 3 * s, ry + ROW_H * 0.5 * s, c('party_target'));
         end
 
         -- marks lead the name; each pushes it right. the name is drawn at
