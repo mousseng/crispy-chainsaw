@@ -202,12 +202,13 @@ local function draw_chain(r, lx, rx, y, s)
     chain_wait = chain_wait or text.new({ text = 'wait', size = 11 });
     chain_go = chain_go or text.new({ text = 'go!', size = 11 });
     chain_time:set(('%.1f'):format(left));
-    local tw, th = chain_time:size();
-    local cy = y + (CHAIN_BAR_Y - 1) * 0.5 * s;
-    chain_time:draw(rx, cy - th * 0.5, col, 'right');
+    -- one baseline for the row, with the names' full line (descenders and
+    -- all) centred above the bar; everything hangs from it, whatever its size.
+    local lb, ll = chain_lead():baseline();
+    local base = math.floor(y + (CHAIN_BAR_Y - 1) * 0.5 * s - ll * 0.5 + lb + 0.5);
+    local tw = chain_time:draw(rx, base - chain_time:baseline(), col, 'right');
     local state = waiting and chain_wait or chain_go;
-    local _, sh = state:size();
-    state:draw(rx - tw - 6 * s, cy - sh * 0.5, col, 'right');
+    state:draw(rx - tw - 6 * s, base - state:baseline(), col, 'right');
 
     -- the names, shortened if they don't fit; still clipped, in case even those don't
     local avail = rx - lx - CHAIN_TIME_W * s;
@@ -217,17 +218,14 @@ local function draw_chain(r, lx, rx, y, s)
     local nx = lx;
     if (chain.chained) then
         local l = chain_lead();
-        local lw, lh = l:size();
-        l:draw(nx, cy - lh * 0.5, c('sc_chain'));
-        nx = nx + lw + CHAIN_GAP * s;
+        nx = nx + l:draw(nx, base - l:baseline(), c('sc_chain')) + CHAIN_GAP * s;
     end
     for _, name in ipairs(chain.resonance) do
         local l = chain_label(cache, name, short and (CHAIN_SHORT[name] or name) or name);
         local els = sc.ELEMENTS[name];
         local n = els and #els or 1;
         for i = 1, n do band_colors[i] = els and c(widgets.ELEMENT[els[i]]) or c('text'); end
-        local _, lh = l:size();
-        nx = nx + widgets.split_text(r, l, nx, cy - lh * 0.5, band_colors, n) + CHAIN_GAP * s;
+        nx = nx + widgets.split_text(r, l, nx, base - l:baseline(), band_colors, n) + CHAIN_GAP * s;
     end
     r.pop_clip();
 

@@ -61,6 +61,39 @@ local function apply(obj, st)
     obj:set_font_color(st.font_color);
 end
 
+--[[ baselines ]]--
+
+-- gdifonttexture trims each texture to its ink on the left, right and bottom
+-- but never the top, so every capture starts at the line top. a capture of "H"
+-- (flat bottom, no descender) then ends at the baseline plus the outline below
+-- it. text in one style shares that, so lining up those offsets lines up
+-- baselines whatever the ascenders and descenders of the strings themselves.
+-- likewise "Hgjpqy" ends at the deepest descender: the full line's height.
+local baselines, depths, probe = {}, {}, nil;
+
+local function probe_height(st, str)
+    if (probe == nil) then
+        probe = gdi:create_object(st, true);
+    else
+        apply(probe, st);
+    end
+    probe:set_text(str);
+    local _, rect = probe:get_texture();
+    return rect and rect.bottom or st.font_height;
+end
+
+---top-of-line to baseline (outline included), and top-of-line to the bottom
+---of the deepest descender, for gdifonts style `st`.
+local function measure_baseline(st)
+    local key = ('%s|%d|%d|%s'):format(st.font_family, st.font_height, st.font_flags, st.outline_width);
+    local b = baselines[key];
+    if (b == nil) then
+        b = probe_height(st, 'H');
+        baselines[key], depths[key] = b, math.max(b, probe_height(st, 'Hgjpqy'));
+    end
+    return b, depths[key];
+end
+
 --[[ gdifonts text ]]--
 
 local label = {};
@@ -72,7 +105,7 @@ function text.new(opts)
     opts = opts or {};
     local st = style(opts, theme.font(), active_scale());
     st.text = opts.text or '';
-    local self = setmetatable({ opts = opts, obj = gdi:create_object(st, true) }, label);
+    local self = setmetatable({ opts = opts, st = st, obj = gdi:create_object(st, true) }, label);
     objects[self] = true;
     return self;
 end
@@ -87,6 +120,18 @@ function label:size()
     local _, rect = self.obj:get_texture();
     if (rect == nil) then return 0, 0; end
     return rect.right, rect.bottom;
+end
+
+---@return number base distance from the top of the text (its draw y) to its
+---baseline, in screen pixels; draw at (baseline y - base) to sit on a line.
+---@return number line height of the style's line, deepest descender included.
+function label:baseline()
+    local b = self.base;
+    if (b == nil) then
+        b, self.line = measure_baseline(self.st);
+        self.base = b;
+    end
+    return b, self.line;
 end
 
 ---draws with the anchor at (x, y). align: 'left' | 'center' | 'right'.
@@ -173,6 +218,7 @@ local function build_set(ctx, name, cfg)
     end
 
     local set = { glyphs = {}, height = 0, pad = 0, outline = false };
+    set.baseline, set.line = measure_baseline(st);
     local split = st.outline_width > 0;
     local outline_rgb = band(st.outline_color, 0x00FFFFFF);
     local base = width('00');
@@ -295,6 +341,15 @@ function number:size()
     return fallback(self):size();
 end
 
+---@return number base, number line; see label:baseline.
+function number:baseline()
+    local gs = find_set(self.glyph_set);
+    if (gs ~= nil) then
+        return gs.baseline, gs.line;
+    end
+    return fallback(self):baseline();
+end
+
 ---@return number w, number h
 function number:draw(x, y, color, align)
     local gs = find_set(self.glyph_set);
@@ -310,13 +365,17 @@ end
 ---or scale change. (number objects read the atlas directly.)
 function text.restyle()
     local font, scale = theme.font(), active_scale();
+    baselines, depths = {}, {};
     for self in pairs(objects) do
-        apply(self.obj, style(self.opts, font, scale));
+        self.st = style(self.opts, font, scale);
+        self.base = nil;
+        apply(self.obj, self.st);
     end
 end
 
 function text.shutdown()
     objects = setmetatable({}, { __mode = 'k' });
+    baselines, depths, probe = {}, {}, nil;
     gdi:destroy_interface();
 end
 
