@@ -12,7 +12,10 @@
 *                                        placing. without it placement uses
 *                                        last frame's size, so a component
 *                                        that appears or resizes is misplaced
-*                                        for one frame.
+*                                        for one frame. may also return x, y
+*                                        to be drawn there this frame instead
+*                                        of where its settings put it (kept on
+*                                        screen, and ignored while dragged).
 *   mouse     fn(ctx, ev, x, y, e)       optional; ev = 'ldown' | 'lup' | 'rdown'
 *                                        | 'rup' | 'wheel', x/y relative to the
 *                                        component. return true to consume, or
@@ -190,12 +193,12 @@ end
 
 ---@return boolean ok, any a, any b the call's first two results when ok
 local function guard(c, what, fn, ...)
-    local ok, a, b = xpcall(fn, handler, ...);
+    local ok, a, b, x, y = xpcall(fn, handler, ...);
     if (not ok) then
         fail(c, what, a);
         return false;
     end
-    return true, a, b;
+    return true, a, b, x, y;
 end
 
 ---requires the component's module if it isn't loaded yet.
@@ -273,15 +276,18 @@ local function pivot(s, a)
     return GROW_X[s.grow_x] or a[1], GROW_Y[s.grow_y] or a[2];
 end
 
-local function place(c, scale)
+---@param x number|nil where the component asked to be this frame, if anywhere
+local function place(c, scale, x, y)
     local s, ctx = c.ctx.settings, c.ctx;
     if (drag ~= nil and drag.c == c) then
         return drag.x, drag.y;
     end
-    local a = ANCHORS[s.anchor] or ANCHORS.topleft;
-    local px, py = pivot(s, a);
-    local x = screen_w * a[1] + s.x * scale - ctx.w * px;
-    local y = screen_h * a[2] + s.y * scale - ctx.h * py;
+    if (x == nil) then
+        local a = ANCHORS[s.anchor] or ANCHORS.topleft;
+        local px, py = pivot(s, a);
+        x = screen_w * a[1] + s.x * scale - ctx.w * px;
+        y = screen_h * a[2] + s.y * scale - ctx.h * py;
+    end
     -- keep it on screen (e.g. after a resolution change)
     x = math.max(0, math.min(x, screen_w - ctx.w));
     y = math.max(0, math.min(y, screen_h - ctx.h));
@@ -310,14 +316,17 @@ local function commit(c, x, y, scale)
     if (hud.on_save) then hud.on_save(); end
 end
 
----moves a component to (x, y) at size (w, h), as if dragged there; for one
----resizing itself around a point (call from its mouse handler, so the next
----frame is placed with the new size).
+---stores a component's position as (x, y) at size (w, h), as if dragged
+---there; for one resizing itself around a point. ctx keeps describing the
+---frame on screen.
 function hud.move(name, x, y, w, h)
     local c = by_name[name];
     if (c == nil or c.ctx.settings == nil or theme.active() == nil) then return; end
-    c.ctx.w, c.ctx.h = w, h;
+    local ctx = c.ctx;
+    local ow, oh = ctx.w, ctx.h;
+    ctx.w, ctx.h = w, h;
     commit(c, x, y, theme.active().scale);
+    ctx.w, ctx.h = ow, oh;
 end
 
 ---sets which way a component grows ('up', 'down', 'left', 'right', 'auto',
@@ -349,12 +358,14 @@ local function draw_component(r, c, dt, scale)
     ctx.scale, ctx.screen_w, ctx.screen_h = scale, screen_w, screen_h;
     ctx.mouse_x, ctx.mouse_y = mouse_x, mouse_y;
     if (mod.update and not guard(c, 'update', mod.update, ctx, dt)) then return; end
+    local mx, my;
     if (mod.measure) then
-        local ok, w, h = guard(c, 'measure', mod.measure, ctx);
+        local ok, w, h;
+        ok, w, h, mx, my = guard(c, 'measure', mod.measure, ctx);
         if (not ok) then return; end
         ctx.w, ctx.h = w or 0, h or 0;
     end
-    local x, y = place(c, scale);
+    local x, y = place(c, scale, mx, my);
     ctx.x, ctx.y = x, y;
     local depth = r.depth();
     local ok, w, h = guard(c, 'draw', mod.draw, r, ctx, x, y);

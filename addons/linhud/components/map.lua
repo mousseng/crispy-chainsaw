@@ -13,7 +13,8 @@
 * full pass takes ~12 frames, which is far quicker than a dot moves a pixel.
 * party members are read every frame, so their arrows turn smoothly.
 *
-* mouse: the wheel grows and shrinks the map around the cursor, and dragging
+* mouse: the wheel grows and shrinks the map around the cursor, easing to the
+* new size so it reads as a zoom (settings.size is where it's heading), and dragging
 * with the left button moves it, no unlock needed. clicks and the wheel only
 * stop at the map while one is shown.
 --]]
@@ -30,6 +31,7 @@ local pi = math.pi;
 local POLL  = 0.5;  -- seconds between checks of zone and floor
 local SWEEP = 192;  -- entity slots examined per frame
 local WHEEL = 1.1;  -- size factor per wheel notch
+local EASE  = 0.06; -- time constant (s) of the size easing toward settings.size
 local HOLD  = 0.25; -- seconds after the player stops before the map fades back up
 local FADE  = 0.2;  -- seconds to fade between the two opacities
 
@@ -77,6 +79,13 @@ end
 zonemap.trace = trace;
 local traced_draw = nil; -- the texture last noted being drawn
 local drawn = false;      -- whether last frame showed a map, so the mouse is ours
+
+-- the size being shown (logical px) while it eases toward settings.size, and
+-- the spot held still meanwhile: screen (pin_x, pin_y) is (pin_u, pin_v) of
+-- the way across the map. pin_x is nil when the size wasn't changed by the
+-- wheel (e.g. `/linhud map size`), which grows it from its anchor instead.
+local size_shown = nil;
+local pin_x, pin_y, pin_u, pin_v = nil, 0, 0, 0;
 
 --[[ game state ]]--
 
@@ -163,8 +172,20 @@ local function sweep(ent)
     end
 end
 
+---eases the shown size toward settings.size.
+local function ease(s, dt)
+    if (size_shown == nil) then size_shown = s.size; end
+    local d = s.size - size_shown;
+    if (math.abs(d) < 0.5) then
+        size_shown, pin_x = s.size, nil;
+    else
+        size_shown = size_shown + d * (1 - math.exp(-dt / EASE));
+    end
+end
+
 function map.update(ctx, dt)
     local s = ctx.settings;
+    ease(s, dt);
     local mm = AshitaCore:GetMemoryManager();
     local p, ent = mm:GetParty(), mm:GetEntity();
     if (now == 0) then
@@ -251,12 +272,13 @@ local function party_arrows(p, ent, edge, scale)
 end
 
 local function box_size(ctx)
-    return math.floor(ctx.settings.size * ctx.scale + 0.5);
+    return math.floor((size_shown or ctx.settings.size) * ctx.scale + 0.5);
 end
 
 function map.measure(ctx)
     local b = box_size(ctx);
-    return b, b;
+    if (pin_x == nil) then return b, b; end
+    return b, b, pin_x - pin_u * b, pin_y - pin_v * b;
 end
 
 function map.draw(r, ctx, x, y)
@@ -310,12 +332,12 @@ local function resize(ctx, mx, my, up)
     local hi = math.max(LIMITS.size[1], math.min(LIMITS.size[2], fit));
     local n = math.floor(s.size * (up and WHEEL or 1 / WHEEL) + 0.5);
     n = math.max(LIMITS.size[1], math.min(hi, n));
-    if (n == s.size) then return; end
-    local old = box_size(ctx);
+    if (n == s.size or ctx.w <= 0) then return; end
+    -- held relative to the frame on screen, which may be mid-ease
+    pin_x, pin_y, pin_u, pin_v = ctx.x + mx, ctx.y + my, mx / ctx.w, my / ctx.h;
     s.size = n;
-    local new = box_size(ctx);
-    local f = new / old;
-    hud.move(ctx.name, ctx.x + mx - mx * f, ctx.y + my - my * f, new, new);
+    local new = math.floor(n * ctx.scale + 0.5);
+    hud.move(ctx.name, pin_x - pin_u * new, pin_y - pin_v * new, new, new);
 end
 
 function map.mouse(ctx, ev, mx, my, e)
@@ -324,7 +346,10 @@ function map.mouse(ctx, ev, mx, my, e)
         resize(ctx, mx, my, e.delta > 0);
         return true;
     end
-    if (ev == 'ldown') then return 'drag'; end
+    if (ev == 'ldown') then
+        pin_x = nil; -- the drag places it now; any easing left grows it from its anchor
+        return 'drag';
+    end
     return false;
 end
 
