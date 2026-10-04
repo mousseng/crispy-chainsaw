@@ -15,7 +15,10 @@
 *                                        for one frame.
 *   mouse     fn(ctx, ev, x, y, e)       optional; ev = 'ldown' | 'lup' | 'rdown'
 *                                        | 'rup' | 'wheel', x/y relative to the
-*                                        component. return true to consume.
+*                                        component. return true to consume, or
+*                                        on 'ldown' 'drag' to consume it and
+*                                        start moving the component (as when
+*                                        unlocked) until the button is let go.
 *   packet_in fn(ctx, e)                 optional; every incoming packet (ashita's
 *                                        packet_in event), even while hidden.
 *                                        check e.id first; this runs a lot.
@@ -307,6 +310,16 @@ local function commit(c, x, y, scale)
     if (hud.on_save) then hud.on_save(); end
 end
 
+---moves a component to (x, y) at size (w, h), as if dragged there; for one
+---resizing itself around a point (call from its mouse handler, so the next
+---frame is placed with the new size).
+function hud.move(name, x, y, w, h)
+    local c = by_name[name];
+    if (c == nil or c.ctx.settings == nil or theme.active() == nil) then return; end
+    c.ctx.w, c.ctx.h = w, h;
+    commit(c, x, y, theme.active().scale);
+end
+
 ---sets which way a component grows ('up', 'down', 'left', 'right', 'auto',
 ---or 'hcenter' / 'vcenter'), keeping it where it is on screen.
 ---@return boolean ok
@@ -521,7 +534,10 @@ function hud.mouse(e)
 
     if (c.mod.mouse == nil) then return; end
     local ok, consumed = guard(c, 'mouse', c.mod.mouse, c.ctx, ev, e.x - c.ctx.x, e.y - c.ctx.y, e);
-    if (ok and consumed) then
+    if (ok and consumed == 'drag' and ev == 'ldown') then
+        drag = { c = c, dx = e.x - c.ctx.x, dy = e.y - c.ctx.y, x = c.ctx.x, y = c.ctx.y };
+        e.blocked = true;
+    elseif (ok and consumed) then
         if (UP_OF[ev] ~= nil) then captured[UP_OF[ev]] = c; end
         e.blocked = true;
     end

@@ -12,9 +12,14 @@
 * per frame (SWEEP slots), reading their positions as the sweep passes; a
 * full pass takes ~12 frames, which is far quicker than a dot moves a pixel.
 * party members are read every frame, so their arrows turn smoothly.
+*
+* mouse: the wheel grows and shrinks the map around the cursor, and dragging
+* with the left button moves it, no unlock needed. clicks and the wheel only
+* stop at the map while one is shown.
 --]]
 
 local bit     = require('bit');
+local hud     = require('ui.hud');
 local render  = require('ui.render');
 local theme   = require('ui.theme');
 local zonemap = require('game.zonemap');
@@ -24,6 +29,7 @@ local pi = math.pi;
 
 local POLL  = 0.5;  -- seconds between checks of zone and floor
 local SWEEP = 192;  -- entity slots examined per frame
+local WHEEL = 1.1;  -- size factor per wheel notch
 local HOLD  = 0.25; -- seconds after the player stops before the map fades back up
 local FADE  = 0.2;  -- seconds to fade between the two opacities
 
@@ -70,6 +76,7 @@ local function trace(fmt, ...)
 end
 zonemap.trace = trace;
 local traced_draw = nil; -- the texture last noted being drawn
+local drawn = false;      -- whether last frame showed a map, so the mouse is ours
 
 --[[ game state ]]--
 
@@ -243,10 +250,20 @@ local function party_arrows(p, ent, edge, scale)
     end
 end
 
+local function box_size(ctx)
+    return math.floor(ctx.settings.size * ctx.scale + 0.5);
+end
+
+function map.measure(ctx)
+    local b = box_size(ctx);
+    return b, b;
+end
+
 function map.draw(r, ctx, x, y)
     local s = ctx.settings;
-    box = math.floor(s.size * ctx.scale + 0.5);
-    if (cur == nil or tex == nil or me.index == 0) then return box, box; end
+    box = box_size(ctx);
+    drawn = cur ~= nil and tex ~= nil and me.index ~= 0;
+    if (not drawn) then return box, box; end
 
     -- the view: the whole map at zoom 1, else a window on it around the
     -- player, kept inside the map
@@ -276,13 +293,42 @@ function map.draw(r, ctx, x, y)
     return box, box;
 end
 
---[[ commands ]]--
+--[[ mouse ]]--
 
 local LIMITS = {
     size   = { 128, 2048, '%d' },
     zoom   = { 1, 8, '%.2f' },
     marker = { 0.5, 4, '%.2f' },
 };
+
+---grows or shrinks the map by a wheel notch, keeping the spot under the
+---cursor (mx, my, relative to the map) where it is. it stops at the
+---screen's shorter side, past which it couldn't stay on screen.
+local function resize(ctx, mx, my, up)
+    local s = ctx.settings;
+    local fit = math.floor(math.min(ctx.screen_w, ctx.screen_h) / ctx.scale);
+    local hi = math.max(LIMITS.size[1], math.min(LIMITS.size[2], fit));
+    local n = math.floor(s.size * (up and WHEEL or 1 / WHEEL) + 0.5);
+    n = math.max(LIMITS.size[1], math.min(hi, n));
+    if (n == s.size) then return; end
+    local old = box_size(ctx);
+    s.size = n;
+    local new = box_size(ctx);
+    local f = new / old;
+    hud.move(ctx.name, ctx.x + mx - mx * f, ctx.y + my - my * f, new, new);
+end
+
+function map.mouse(ctx, ev, mx, my, e)
+    if (not drawn) then return false; end
+    if (ev == 'wheel') then
+        resize(ctx, mx, my, e.delta > 0);
+        return true;
+    end
+    if (ev == 'ldown') then return 'drag'; end
+    return false;
+end
+
+--[[ commands ]]--
 
 local function describe(s)
     return ('map size %d, zoom %.2f, marker %.2f, opacity %.2f (moving %.2f)'):format(s.size, s.zoom, s.marker, s.opacity, s.opacity_moving);
