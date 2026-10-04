@@ -9,6 +9,8 @@
 --]]
 
 return {
+    -- first, so it paints under everything else and never covers their clicks
+    { name = 'map',    defaults = { enabled = false, anchor = 'center', x = 0, y = 0, size = 512, zoom = 1, marker = 1, opacity = 0.6, opacity_moving = 0.3 } },
     { name = 'exp',    defaults = { enabled = true, anchor = 'top', x = 0, y = 0, width = 640 } },
     { name = 'party',  defaults = { enabled = true, anchor = 'left', x = 20, y = -120, grow_y = 'down', hide_solo = false, status_lines = 2 } },
     { name = 'target', defaults = { enabled = true, anchor = 'top', x = 0, y = 80, grow_y = 'down' } },

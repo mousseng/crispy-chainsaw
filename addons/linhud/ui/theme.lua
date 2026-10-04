@@ -43,6 +43,10 @@ theme.SLOTS = {
     mark_sync            = 'sprite',
     dot                  = 'sprite',
     cell                 = 'nineslice',
+    map_arrow            = 'sprite',
+    map_arrow_edge       = 'sprite',
+    map_dot              = 'sprite',
+    map_dot_edge         = 'sprite',
 };
 
 ---named functions that add generated images to the atlas at build time, e.g.

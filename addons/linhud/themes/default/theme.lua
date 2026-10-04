@@ -74,6 +74,20 @@ return {
         el_water      = 0xFF5F9CFF,
         el_light      = 0xFFFFF6C0,
         el_dark       = 0xFFA080C8,
+
+        -- zone map: the player's arrow, each party slot's arrow, dots for
+        -- everyone else by kind, and the dark edge drawn over every marker
+        map_self      = 0xFFFF3B30,
+        map_party1    = 0xFFFFD83A,
+        map_party2    = 0xFF3AD8FF,
+        map_party3    = 0xFFFF9A2E,
+        map_party4    = 0xFFFF7AD0,
+        map_party5    = 0xFFFFFFFF,
+        map_alliance  = 0xFFB060FF,
+        map_pc        = 0xFF3A7BFF,
+        map_npc       = 0xFF3ACF5A,
+        map_mob       = 0xFFE02A2A,
+        map_edge      = 0xE0000000,
     },
 
     -- mapped onto gdifonts settings by ui/text.lua. sizes are logical pixels.
@@ -126,5 +140,13 @@ return {
 
         -- inventory item cells
         cell                 = { gen = 'rounded_rect', radius = 3 },
+
+        -- zone map markers: arrowheads for the party (rotated to heading),
+        -- dots for everyone else. each _edge is the same shape's outline,
+        -- drawn over it so markers read on light map art.
+        map_arrow            = { gen = 'arrow', width = 11, height = 13, dir = 'up', notch = 0.35, pivot = 'center' },
+        map_arrow_edge       = { gen = 'arrow', width = 11, height = 13, dir = 'up', notch = 0.35, pivot = 'center', stroke = 1.25, fill = false },
+        map_dot              = { gen = 'circle', radius = 3 },
+        map_dot_edge         = { gen = 'circle', radius = 3, stroke = 1, fill = false },
     },
 };

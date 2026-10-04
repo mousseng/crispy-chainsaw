@@ -88,8 +88,8 @@ local last_stats = { quads = 0, calls = 0 };
 
 --[[ records ]]--
 
-local K_QUAD, K_NINE, K_VGRAD, K_CLIP, K_TEX, K_HNINE, K_VNINE = 1, 2, 3, 4, 5, 6, 7;
-local Q_LEN, NINE_LEN, VGRAD_LEN, CLIP_LEN, TEX_LEN = 10, 18, 9, 5, 2; -- doubles per record
+local K_QUAD, K_NINE, K_VGRAD, K_CLIP, K_TEX, K_HNINE, K_VNINE, K_ROT = 1, 2, 3, 4, 5, 6, 7, 8;
+local Q_LEN, NINE_LEN, VGRAD_LEN, CLIP_LEN, TEX_LEN, ROT_LEN = 10, 18, 9, 5, 2, 14; -- doubles per record
 local HNINE_LEN = NINE_LEN + 3; -- a nineslice record, then the gradient's left x, right x and right colour (top y, bottom y, bottom colour for K_VNINE)
 
 local rcap = 16384;
@@ -169,6 +169,22 @@ local function quad(x0, y0, x1, y1, u0, v0, u1, v1, c)
     v[1].x, v[1].y, v[1].u, v[1].v, v[1].color = qx1, qy0, u1, v0, c;
     v[2].x, v[2].y, v[2].u, v[2].v, v[2].color = qx0, qy1, u0, v1, c;
     v[3].x, v[3].y, v[3].u, v[3].v, v[3].color = qx1, qy1, u1, v1, c;
+    nquads = nquads + 1;
+end
+
+---a rotated quad record at i: pivot (x, y), the rect around it before
+---rotating, cos and sin of the angle, uvs and colour. not clipped: callers
+---cull what they don't want drawn.
+local function quad_rot(r, i)
+    local x, y = r[i + 1] - 0.5, r[i + 2] - 0.5; -- d3d8 texel/pixel centre alignment
+    local x0, y0, x1, y1 = r[i + 3], r[i + 4], r[i + 5], r[i + 6];
+    local c, s = r[i + 7], r[i + 8];
+    local u0, v0, u1, v1, col = r[i + 9], r[i + 10], r[i + 11], r[i + 12], r[i + 13];
+    local v = verts + nquads * 4;
+    v[0].x, v[0].y, v[0].u, v[0].v, v[0].color = x + x0 * c - y0 * s, y + x0 * s + y0 * c, u0, v0, col;
+    v[1].x, v[1].y, v[1].u, v[1].v, v[1].color = x + x1 * c - y0 * s, y + x1 * s + y0 * c, u1, v0, col;
+    v[2].x, v[2].y, v[2].u, v[2].v, v[2].color = x + x0 * c - y1 * s, y + x0 * s + y1 * c, u0, v1, col;
+    v[3].x, v[3].y, v[3].u, v[3].v, v[3].color = x + x1 * c - y1 * s, y + x1 * s + y1 * c, u1, v1, col;
     nquads = nquads + 1;
 end
 
@@ -268,6 +284,9 @@ local function expand()
         elseif (k == K_CLIP) then
             ex_x0, ex_y0, ex_x1, ex_y1 = r[i + 1], r[i + 2], r[i + 3], r[i + 4];
             i = i + CLIP_LEN;
+        elseif (k == K_ROT) then
+            quad_rot(r, i);
+            i = i + ROT_LEN;
         else -- K_VGRAD
             quad_vgrad(r[i + 1], r[i + 2], r[i + 3], r[i + 4], r[i + 5], r[i + 6], r[i + 7], r[i + 8]);
             i = i + VGRAD_LEN;
@@ -501,6 +520,23 @@ function render.sprite(name, x, y, color, scale)
     use(theme.texture(), Q_LEN);
     rec_quad(x, y, x + w, y + h, r.u0, r.v0, r.u1, r.v1, fade(slot_color(meta, color or 0xFFFFFFFF)));
     return w, h;
+end
+
+---draws a sprite slot rotated by angle (radians, clockwise on screen) about
+---its pivot, which lands at (x, y). ignores the clip rect.
+function render.sprite_rot(name, x, y, angle, color, scale)
+    local meta = theme.slot(name);
+    if (meta == nil) then return; end
+    local r = meta.region;
+    local k = theme.active().scale / meta.density * (scale or 1);
+    local w, h = r.w * k, r.h * k;
+    local x0, y0 = -w * meta.pivot[1], -h * meta.pivot[2];
+    use(theme.texture(), ROT_LEN);
+    local i = nrec;
+    rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4], rec[i + 5], rec[i + 6] = K_ROT, x, y, x0, y0, x0 + w, y0 + h;
+    rec[i + 7], rec[i + 8], rec[i + 9], rec[i + 10], rec[i + 11], rec[i + 12] = math.cos(angle), math.sin(angle), r.u0, r.v0, r.u1, r.v1;
+    rec[i + 13] = fade(slot_color(meta, color or 0xFFFFFFFF));
+    nrec = i + ROT_LEN;
 end
 
 local ALIGN = { left = 0, center = 0.5, right = 1 };

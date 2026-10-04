@@ -22,8 +22,9 @@
 * nothing is spent until something draws icons.
 --]]
 
-local ffi = require('ffi');
-local bit = require('bit');
+local ffi   = require('ffi');
+local bit   = require('bit');
+local atlas = require('ui.atlas');
 
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift;
 local floor = math.floor;
@@ -168,13 +169,13 @@ local function create(name)
     if (res ~= C.S_OK) then
         error(('icons (%s): CreateTexture failed: %s'):format(name, d3d8.get_error(res)));
     end
-    local lres, lock = t:LockRect(0, nil, 0);
-    if (lres ~= C.S_OK) then
+    local pitch, bits = atlas.lock(t);
+    if (pitch == nil) then
         t:Release();
-        error(('icons (%s): LockRect failed: %s'):format(name, d3d8.get_error(lres)));
+        error(('icons (%s): LockRect failed: %s'):format(name, d3d8.get_error(bits)));
     end
     for y = 0, SHEET - 1 do
-        ffi.fill(ffi.cast('uint8_t*', lock.pBits) + y * lock.Pitch, SHEET * 4);
+        ffi.fill(bits + y * pitch, SHEET * 4);
     end
     t:UnlockRect(0);
     return t;
@@ -237,9 +238,8 @@ function Sheet:flush()
     end
 
     local rect = ffi.new('RECT', { 0, top, COLS * CELL, bottom });
-    local res, lock = self.tex:LockRect(0, rect, 0);
-    if (res == ffi.C.S_OK) then
-        local base, pitch = ffi.cast('uint8_t*', lock.pBits), lock.Pitch;
+    local pitch, base = atlas.lock(self.tex, rect, 0);
+    if (pitch ~= nil) then
         for i = 1, n do
             local cell = p_cell[i];
             local x, y = (cell % COLS) * CELL, floor(cell / COLS) * CELL - top;

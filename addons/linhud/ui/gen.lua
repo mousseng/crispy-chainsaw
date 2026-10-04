@@ -198,28 +198,32 @@ local function sprite(w, h, verts_fn, spec, scale, pivot)
     return img, { type = 'sprite', pivot = pivot };
 end
 
----target markers. spec: width, height, dir ('down' | 'up' | 'left' | 'right'), stroke
----pivot is the tip, so the arrow can be placed pointing at a coordinate.
+---target markers. spec: width, height, dir ('down' | 'up' | 'left' | 'right'),
+---stroke, notch (0..1: how far the base is cut in towards the tip, making an
+---arrowhead), pivot ('tip' | 'center').
+---pivot is the tip by default, so the arrow can be placed pointing at a
+---coordinate; 'center' suits arrows that get rotated in place.
 function gen.arrow(spec, scale)
     local dir = spec.dir or 'down';
     local w = (spec.width or 12) * scale;
     local h = (spec.height or 8) * scale;
+    local n = spec.notch or 0;
     if (dir == 'left' or dir == 'right') then
         w, h = h, w;
     end
 
     local tri = {
-        down  = function (x, y) return { { x, y }, { x + w, y }, { x + w * 0.5, y + h } }; end,
-        up    = function (x, y) return { { x + w * 0.5, y }, { x + w, y + h }, { x, y + h } }; end,
-        right = function (x, y) return { { x, y }, { x + w, y + h * 0.5 }, { x, y + h } }; end,
-        left  = function (x, y) return { { x + w, y }, { x + w, y + h }, { x, y + h * 0.5 } }; end,
+        down  = function (x, y) return { { x, y }, { x + w * 0.5, y + h * n }, { x + w, y }, { x + w * 0.5, y + h } }; end,
+        up    = function (x, y) return { { x + w * 0.5, y }, { x + w, y + h }, { x + w * 0.5, y + h * (1 - n) }, { x, y + h } }; end,
+        right = function (x, y) return { { x, y }, { x + w, y + h * 0.5 }, { x, y + h }, { x + w * n, y + h * 0.5 } }; end,
+        left  = function (x, y) return { { x + w, y }, { x + w * (1 - n), y + h * 0.5 }, { x + w, y + h }, { x, y + h * 0.5 } }; end,
     };
     local pivots = { down = { 0.5, 1 }, up = { 0.5, 0 }, right = { 1, 0.5 }, left = { 0, 0.5 } };
     if (tri[dir] == nil) then
         error(('arrow: unknown dir "%s"'):format(tostring(dir)));
     end
 
-    return sprite(w, h, tri[dir], spec, scale, pivots[dir]);
+    return sprite(w, h, tri[dir], spec, scale, spec.pivot == 'center' and { 0.5, 0.5 } or pivots[dir]);
 end
 
 ---regular star / diamond (points = 2) / polygon marks.

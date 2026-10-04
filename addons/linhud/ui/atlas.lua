@@ -81,6 +81,22 @@ end
 
 --[[ d3d ]]--
 
+---locks a texture's top level, returning its pitch and a pointer to its bits.
+---use this, never tex:LockRect: ashita's wrapper returns lock[0], an ffi
+---reference into an array that nothing keeps alive, so once the gc frees the
+---array (any allocation can trigger it) Pitch and pBits are read from freed
+---memory, and the writes they steer are an access violation.
+---@return integer|nil pitch bytes per row (per row of blocks for dxt), or nil on failure
+---@return ffi.cdata*|integer bits uint8_t*, or the HRESULT on failure
+function atlas.lock(tex, rect, flags)
+    local out = ffi.new('D3DLOCKED_RECT[1]');
+    local res = tex.lpVtbl.LockRect(tex, 0, out, rect, flags or 0);
+    if (res ~= ffi.C.S_OK) then return nil, res; end
+    local pitch, bits = out[0].Pitch, ffi.cast('uint8_t*', out[0].pBits);
+    out = nil; -- (kept until here, so it outlives both reads)
+    return pitch, bits;
+end
+
 ---uploads a packed sheet into a managed-pool A8R8G8B8 texture. managed textures
 ---survive device resets, so nothing needs rebuilding on alt-tab.
 ---@return ffi.cdata* IDirect3DTexture8 (caller owns it; call Release)
@@ -94,15 +110,15 @@ function atlas.upload(sheet)
         error(('atlas: CreateTexture failed: %s'):format(d3d8.get_error(res)));
     end
 
-    local lres, lock = tex:LockRect(0, nil, 0);
-    if (lres ~= C.S_OK) then
+    local pitch, dst = atlas.lock(tex);
+    if (pitch == nil) then
         tex:Release();
-        error(('atlas: LockRect failed: %s'):format(d3d8.get_error(lres)));
+        error(('atlas: LockRect failed: %s'):format(d3d8.get_error(dst)));
     end
 
-    local dst, row = ffi.cast('uint8_t*', lock.pBits), sheet.w * 4;
+    local row = sheet.w * 4;
     for y = 0, sheet.h - 1 do
-        ffi.copy(dst + y * lock.Pitch, sheet.px + y * sheet.w, row);
+        ffi.copy(dst + y * pitch, sheet.px + y * sheet.w, row);
     end
     tex:UnlockRect(0);
     return tex;
@@ -122,16 +138,15 @@ function atlas.read(tex)
     if (desc.Format ~= C.D3DFMT_A8R8G8B8) then
         return nil, ('unsupported texture format %d'):format(tonumber(desc.Format));
     end
-    local lres, lock = tex:LockRect(0, nil, 0x10); -- D3DLOCK_READONLY
-    if (lres ~= C.S_OK) then
-        return nil, d3d8.get_error(lres);
+    local pitch, src = atlas.lock(tex, nil, 0x10); -- D3DLOCK_READONLY
+    if (pitch == nil) then
+        return nil, d3d8.get_error(src);
     end
 
     local w, h = desc.Width, desc.Height;
     local img = image.new(w, h);
-    local src = ffi.cast('uint8_t*', lock.pBits);
     for y = 0, h - 1 do
-        ffi.copy(img.px + y * w, src + y * lock.Pitch, w * 4);
+        ffi.copy(img.px + y * w, src + y * pitch, w * 4);
     end
     tex:UnlockRect(0);
     return img;
@@ -160,16 +175,15 @@ function atlas.load_file(path)
     end
 
     local tex = ffi.cast('IDirect3DTexture8*', ptr[0]);
-    local lres, lock = tex:LockRect(0, nil, 0x10); -- D3DLOCK_READONLY
-    if (lres ~= C.S_OK) then
+    local pitch, src = atlas.lock(tex, nil, 0x10); -- D3DLOCK_READONLY
+    if (pitch == nil) then
         tex:Release();
-        return nil, d3d8.get_error(lres);
+        return nil, d3d8.get_error(src);
     end
 
     local img = image.new(w, h);
-    local src = ffi.cast('uint8_t*', lock.pBits);
     for y = 0, h - 1 do
-        ffi.copy(img.px + y * w, src + y * lock.Pitch, w * 4);
+        ffi.copy(img.px + y * w, src + y * pitch, w * 4);
     end
     tex:UnlockRect(0);
     tex:Release();
