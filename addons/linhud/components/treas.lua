@@ -6,13 +6,14 @@
 * unlocked, so it can be placed. rows go in pool slot order. an item the
 * player is winning is gold, one they've passed is dimmed.
 *
-* the client doesn't keep a usable expiry time for pool items, so each one's
-* five minutes are counted from when it was first seen here: right for new
-* drops, but an item already in the pool when this loads (or when zoning
-* back in) shows more time than it really has left.
+* time left comes from game/treasure.lua, which watches drops even while this
+* is off. an item already in the pool when it was first seen (joining a party,
+* loading the addon) shows ??? until a couple of new drops have shown how the
+* server's clock maps to ours.
 *
 * `/linhud treas demo` fills the pool with fake items to try it out solo;
-* lotting and passing those never reaches the server.
+* lotting and passing those never reaches the server. `/linhud treas clock`
+* says what's known about the server's clock.
 --]]
 
 local hud       = require('ui.hud');
@@ -20,6 +21,7 @@ local inventory = require('game.inventory');
 local icons     = require('ui.icons');
 local text      = require('ui.text');
 local theme     = require('ui.theme');
+local treasure  = require('game.treasure');
 
 local treas = {}; -- settings defaults: components/list.lua
 
@@ -41,7 +43,7 @@ local pool = {};
 for i = 0, SLOTS - 1 do
     pool[i] = {
         slot = i, id = 0, drop = -1, label = '', lot = 0, win_lot = 0, win_sid = 0, win_name = '',
-        expires = 0, secs = -1, time_str = '', lot_str = '', win_lot_str = '', pending = 0,
+        expires = nil, secs = -1, time_str = '', lot_str = '', win_lot_str = '', pending = 0,
         name_text = nil, win_text = nil, time_num = nil, lot_num = nil, win_num = nil,
     };
 end
@@ -54,7 +56,7 @@ local demo = false;
 -- for one slot, 'lot_all' | 'pass_all' for every slot.
 local btn_kind, btn_slot, btn_x, btn_y, btn_w, btn_h, nbtns = {}, {}, {}, {}, {}, {}, 0;
 
-local title, lbl_lot, lbl_pass, lbl_lot_all, lbl_pass_all, lbl_passed = nil, nil, nil, nil, nil, nil;
+local title, lbl_lot, lbl_pass, lbl_lot_all, lbl_pass_all, lbl_passed, lbl_unknown = nil, nil, nil, nil, nil, nil, nil;
 
 --[[ game state ]]--
 
@@ -77,11 +79,12 @@ local function set_winner(e, lot, sid, name)
     e.win_sid, e.win_name = sid, lot > 0 and name or '';
 end
 
+---e.secs is -1 while the expiry isn't known.
 local function set_time(e, t)
-    local secs = math.max(0, e.expires - t);
+    local secs = e.expires and math.max(0, e.expires - t) or -1;
     if (secs ~= e.secs) then
         e.secs = secs;
-        e.time_str = ('%d:%02d'):format(math.floor(secs / 60), secs % 60);
+        e.time_str = secs >= 0 and ('%d:%02d'):format(math.floor(secs / 60), secs % 60) or '';
     end
 end
 
@@ -107,12 +110,12 @@ local function poll()
         if (id == 0) then
             e.id = 0;
         else
-            -- a different drop in the slot: its five minutes start now
             if (id ~= e.id or item.DropTime ~= e.drop) then
                 local info = inventory.info(id);
-                e.id, e.drop, e.expires, e.pending = id, item.DropTime, t + LIFETIME, 0;
+                e.id, e.drop, e.pending = id, item.DropTime, 0;
                 e.label = info and info.label or ('item #%d'):format(id);
             end
+            e.expires = treasure.expires(i, id, item.DropTime); -- may become known later
             set_lot(e, item.Lot);
             set_winner(e, item.WinningLot, item.WinningEntityServerId, item.WinningEntityName);
             set_time(e, t);
@@ -243,7 +246,12 @@ local function draw_row(r, ctx, e, x, y, s)
     e.time_num = e.time_num or text.number('number');
     e.time_num:set(e.time_str);
     local _, th = e.time_num:size();
-    e.time_num:draw(tx, cy - th * 0.5, c(e.secs <= 60 and 'hp_crit' or 'text_dim'), 'right');
+    if (e.secs >= 0) then
+        e.time_num:draw(tx, cy - th * 0.5, c(e.secs <= 60 and 'hp_crit' or 'text_dim'), 'right');
+    else
+        local _, uh = lbl_unknown:size();
+        lbl_unknown:draw(tx, cy - uh * 0.5, c('text_dim'), 'right');
+    end
 
     local wx = tx + WLOT_W * s;
     if (e.win_lot > 0) then
@@ -289,6 +297,7 @@ function treas.draw(r, ctx, x, y)
         lbl_lot_all = text.new({ text = 'Lot all', size = 11 });
         lbl_pass_all = text.new({ text = 'Pass all', size = 11 });
         lbl_passed = text.new({ text = 'passed', size = 11, bold = false });
+        lbl_unknown = text.new({ text = '???', size = 11, bold = false });
     end
 
     r.nineslice('panel_shadow', x, y, w, h, c('shadow'));
@@ -341,11 +350,14 @@ end
 --[[ commands ]]--
 
 ---/linhud treas demo - toggles a fake pool to try the panel out with.
+---/linhud treas clock - what's known about the server's pool clock.
 function treas.command(ctx, args)
     if (args[1] == 'demo') then
         demo = not demo;
         if (demo) then demo_fill(); else poll(); end
         return true, ('treas demo: %s'):format(demo and 'on' or 'off');
+    elseif (args[1] == 'clock') then
+        return true, ('treas clock: %s'):format(treasure.describe());
     end
     return false;
 end

@@ -8,6 +8,7 @@ local d3d8     = require('d3d8');
 local ffi      = require('ffi');
 local settings = require('settings');
 local client   = require('game.client');
+local treasure = require('game.treasure');
 local jitlog   = require('diag.jitlog');
 local atlas    = require('ui.atlas');
 local hud      = require('ui.hud');
@@ -164,6 +165,7 @@ ashita.events.register('mouse', 'mouse_cb', function (e)
 end);
 
 ashita.events.register('packet_in', 'packet_in_cb', function (e)
+    treasure.packet_in(e); -- even while treas is off, so drop times survive toggling it
     hud.packet_in(e);
 end);
 
