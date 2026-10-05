@@ -9,6 +9,11 @@
 * status icons sit under a member's bars, wrapping onto as many lines as they
 * need up to settings.status_lines (`/linhud party status <n>`; 0 hides
 * them); any past that are left off. a member with none takes no extra room.
+*
+* a member's pet gets a slimmer, indented line under them: name and hp bar,
+* which is all the client knows about someone else's pet. it shows only while
+* both owner and pet are spawned near us; past update range the owner's pet
+* index goes stale, so it's dropped rather than trusted.
 --]]
 
 local bit     = require('bit');
@@ -50,6 +55,9 @@ for i = 0, 5 do
         -- current values rather than animate from whoever was here before.
         sid = 0, fresh = true,
         hp_trail = widgets.trail_new(), mp_trail = widgets.trail_new(), tp_trail = widgets.trail_new(),
+        -- the pet line: entity index (0 = none), name, hp.
+        pet_index = 0, pet_name = '', pet_hpp = 0, pet_text = nil,
+        pet_fresh = true, pet_trail = widgets.trail_new(),
     };
 end
 local count = 0;
@@ -142,10 +150,32 @@ local function read_member_status(m, sid)
     end
 end
 
+---the member's pet's entity index, or 0. an entity with no actor isn't
+---spawned near us; the owner is checked too, since their pet index is stale
+---once they're out of range (and the slot may have been reused).
+local function read_pet(m, ent, i)
+    local owner = m.target_index;
+    local pet = 0;
+    if (owner ~= 0 and (i == 0 or ent:GetActorPointer(owner) ~= 0)) then
+        pet = ent:GetPetTargetIndex(owner);
+        if (pet ~= 0 and (ent:GetActorPointer(pet) == 0 or ent:GetHPPercent(pet) == 0)) then
+            pet = 0;
+        end
+    end
+    if (pet ~= m.pet_index) then
+        m.pet_index, m.pet_fresh = pet, true;
+    end
+    if (pet ~= 0) then
+        m.pet_name = ent:GetName(pet) or '';
+        m.pet_hpp = ent:GetHPPercent(pet) / 100;
+    end
+end
+
 local trail_reset, trail_step = widgets.trail_reset, widgets.trail_step;
 
 local function poll()
-    local p = AshitaCore:GetMemoryManager():GetParty();
+    local mm = AshitaCore:GetMemoryManager();
+    local p, ent = mm:GetParty(), mm:GetEntity();
     if (p == nil) then count = 0; return; end
 
     local my_zone = p:GetMemberZone(0);
@@ -185,8 +215,9 @@ local function poll()
             else
                 m.nstatus = 0; -- only reported for members in our zone
             end
+            read_pet(m, ent, i);
         else
-            m.sid = 0; -- whoever joins this slot next starts fresh, even if it's them again
+            m.sid, m.pet_index = 0, 0; -- whoever joins this slot next starts fresh, even if it's them again
         end
     end
 end
@@ -211,6 +242,14 @@ local function step_trails(dt)
             trail_step(m.hp_trail, m.hpp, dt, true);
             trail_step(m.mp_trail, m.mpp, dt, true);
             trail_step(m.tp_trail, tpf, dt, false);
+        end
+        if (m.pet_index ~= 0) then
+            if (m.pet_fresh) then
+                m.pet_fresh = false;
+                trail_reset(m.pet_trail, m.pet_hpp);
+            else
+                trail_step(m.pet_trail, m.pet_hpp, dt, true);
+            end
         end
     end
 end
@@ -240,6 +279,9 @@ local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 17, 23
 -- status icons: lines of them under the bars, as wide as the bars.
 local STATUS_S, STATUS_GAP, STATUS_Y = 16, 2, ROW_H - 1;
 local PER_LINE = floor((HP_W + MP_W + TP_W + BAR_GAP * 2 + STATUS_GAP) / (STATUS_S + STATUS_GAP));
+-- the pet line, under the member's status icons: its height, the name's
+-- indent and size, and a thinner hp bar lined up with the mp column.
+local PET_H, PET_INDENT, PET_FONT, PET_BAR_H, PET_BAR_Y = 16, 12, 11, 5, 6;
 
 local bar = widgets.bar;
 
@@ -254,8 +296,9 @@ local function hp_color(frac)
 end
 
 -- each row's top and height in logical pixels, from the panel's top; rows
--- grow to fit their status icons. set by layout().
-local row_y, row_h = {}, {};
+-- grow to fit their status icons and pet line. pet_h is the pet line's share
+-- of row_h (0 = no pet). set by layout().
+local row_y, row_h, pet_h = {}, {}, {};
 
 ---lays the rows out. returns the panel's logical height.
 local function layout(ctx)
@@ -264,7 +307,8 @@ local function layout(ctx)
     for i = 0, count - 1 do
         local m = members[i];
         m.status_lines = min(ceil(m.nstatus / PER_LINE), max_lines);
-        row_y[i], row_h[i] = y, ROW_H + m.status_lines * (STATUS_S + STATUS_GAP);
+        pet_h[i] = m.pet_index ~= 0 and PET_H or 0;
+        row_y[i], row_h[i] = y, ROW_H + m.status_lines * (STATUS_S + STATUS_GAP) + pet_h[i];
         y = y + row_h[i] + ROW_GAP;
     end
     return y - ROW_GAP + PAD;
@@ -336,7 +380,7 @@ function party.draw(r, ctx, x, y)
         -- run a quarter lap ahead, so on a row that is both the two pairs
         -- interleave.
         local o = TARGET_OUT * s;
-        local tx0, ty0, tw, th = x + 6 * s - o, ry + 2 * s - o, w - 12 * s + 2 * o, (row_h[i] - 4) * s + 2 * o;
+        local tx0, ty0, tw, th = x + 6 * s - o, ry + 2 * s - o, w - 12 * s + 2 * o, (row_h[i] - pet_h[i] - 4) * s + 2 * o;
         local pos = spin / SPIN_PERIOD;
         if (targeted and m.target_index == target_index) then
             local spin_c = c('row_target_spin');
@@ -390,6 +434,24 @@ function party.draw(r, ctx, x, y)
             m.job_num:draw(tx + TP_W * s, ry + 3 * s, c('text_dim'), 'right');
         end
         -- out of zone: the zone name replaces the bars (drawn in the text pass)
+
+        -- pet line: its own highlight (pets are targeted apart from their
+        -- owner) and a thin hp bar; the name is drawn in the text pass.
+        if (m.pet_index ~= 0) then
+            local py = ry + (row_h[i] - PET_H) * s;
+            local pth = (PET_H - 2) * s + 2 * o;
+            if (m.pet_index == target_index) then
+                local spin_c = c('row_target_spin');
+                widgets.spinner(r, 'row_highlight', tx0, py - o, tw, pth, spin_c, pos, SPIN_TAIL);
+                widgets.spinner(r, 'row_highlight', tx0, py - o, tw, pth, spin_c, pos + 0.5, SPIN_TAIL);
+            end
+            if (m.pet_index == subtarget_index) then
+                local spin_c = c('row_subtarget_spin');
+                widgets.spinner(r, 'row_highlight', tx0, py - o, tw, pth, spin_c, pos + 0.25, SPIN_TAIL);
+                widgets.spinner(r, 'row_highlight', tx0, py - o, tw, pth, spin_c, pos + 0.75, SPIN_TAIL);
+            end
+            bar(r, mx, py + PET_BAR_Y * s, (tx + TP_W * s) - mx, PET_BAR_H * s, m.pet_hpp, hp_color(m.pet_hpp), nil, m.pet_trail.shown);
+        end
     end
 
     -- status icons: their own sheet, so one more draw call for the panel.
@@ -431,6 +493,16 @@ function party.draw(r, ctx, x, y)
             m.zone_text:draw(hx, ry + (BAR_Y - 2) * s, c('text_dim'));
             r.pop_clip();
         end
+
+        if (m.pet_index ~= 0) then
+            local py = ry + (row_h[i] - PET_H) * s;
+            local px = hx + PET_INDENT * s;
+            m.pet_text = m.pet_text or text.new({ size = PET_FONT, bold = false });
+            m.pet_text:set(m.pet_name);
+            r.push_clip(px, py - 2 * s, mx - px - BAR_GAP * s, PET_H * s);
+            m.pet_text:draw(px, py, c('pet'));
+            r.pop_clip();
+        end
     end
 
     return w, h;
@@ -445,7 +517,12 @@ function party.mouse(ctx, ev, mx, my)
         local _, ry, _, rh = row_rect(ctx, i);
         local top = ry - ctx.y;
         if (my >= top and my < top + rh and members[i].active) then
-            AshitaCore:GetChatManager():QueueCommand(1, ('/ta <p%d>'):format(i));
+            local m = members[i];
+            if (pet_h[i] > 0 and m.pet_index ~= 0 and my >= top + rh - pet_h[i] * ctx.scale) then
+                AshitaCore:GetMemoryManager():GetTarget():SetTarget(m.pet_index, false);
+            else
+                AshitaCore:GetChatManager():QueueCommand(1, ('/ta <p%d>'):format(i));
+            end
             return true;
         end
     end
