@@ -63,13 +63,13 @@ local cursor = 0;
 local traced_sweep = nil; -- the zone whose first sweep was noted
 
 local function msg(fmt, ...)
-    print(('\30\81[\30\06linhud\30\81]\30\01 map: ' .. fmt):format(...));
+    print(('\30\81[\30\06crispy-chainsaw\30\81]\30\01 map: ' .. fmt):format(...));
 end
 
 -- breadcrumbs for crashes in native code (which take the game down before any
 -- lua error can be reported): each step is appended and closed at once, so
 -- the last line in map.log is the step that was running.
-local LOG = (AshitaCore:GetInstallPath():gsub('[\\/]+$', '')) .. '/config/addons/linhud/map.log';
+local LOG = (AshitaCore:GetInstallPath():gsub('[\\/]+$', '')) .. '/config/addons/crispy-chainsaw/map.log';
 local function trace(fmt, ...)
     local f = io.open(LOG, 'a');
     if (f == nil) then return; end
@@ -83,7 +83,7 @@ local drawn = false;      -- whether last frame showed a map, so the mouse is ou
 -- the size being shown (logical px) while it eases toward settings.size, and
 -- the spot held still meanwhile: screen (pin_x, pin_y) is (pin_u, pin_v) of
 -- the way across the map. pin_x is nil when the size wasn't changed by the
--- wheel (e.g. `/linhud map size`), which grows it from its anchor instead.
+-- wheel (e.g. `/cc map size`), which grows it from its anchor instead.
 local size_shown = nil;
 local pin_x, pin_y, pin_u, pin_v = nil, 0, 0, 0;
 
@@ -374,7 +374,7 @@ function map.command(ctx, args)
         if (args[2] ~= nil) then
             local still, moving = tonumber(args[2]), tonumber(args[3] or s.opacity_moving);
             if (still == nil or moving == nil or still < 0 or still > 1 or moving < 0 or moving > 1) then
-                return true, 'usage: /linhud map opacity <still 0..1> [moving 0..1]';
+                return true, 'usage: /cc map opacity <still 0..1> [moving 0..1]';
             end
             s.opacity, s.opacity_moving = still, moving;
         end

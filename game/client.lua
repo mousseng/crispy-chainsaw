@@ -125,7 +125,7 @@ function client.poll(out)
     return out;
 end
 
----the topmost menu's name, trimmed, for `/linhud state`.
+---the topmost menu's name, trimmed, for `/cc state`.
 function client.menu_name()
     local raw = top_menu();
     return raw and raw:gsub('%z', '') or '';

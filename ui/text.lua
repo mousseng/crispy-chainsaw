@@ -149,7 +149,7 @@ end
 local band, rshift = bit.band, bit.rshift;
 
 local function warn(fmt, ...)
-    print(('\30\81[\30\06linhud\30\81]\30\01 text: ' .. fmt):format(...));
+    print(('\30\81[\30\06crispy-chainsaw\30\81]\30\01 text: ' .. fmt):format(...));
 end
 
 ---rasterises a string and reads it back as an image cropped to the text.

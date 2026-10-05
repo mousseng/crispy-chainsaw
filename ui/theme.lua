@@ -58,7 +58,7 @@ theme.providers = {};
 local current = nil;
 
 local function warn(fmt, ...)
-    print(('\30\81[\30\06linhud\30\81]\30\01 theme: ' .. fmt):format(...));
+    print(('\30\81[\30\06crispy-chainsaw\30\81]\30\01 theme: ' .. fmt):format(...));
 end
 
 local function file_exists(path)

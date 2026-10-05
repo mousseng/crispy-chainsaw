@@ -7,7 +7,7 @@
 * strings for numbers are rebuilt only when a value changes.
 *
 * status icons sit under a member's bars, wrapping onto as many lines as they
-* need up to settings.status_lines (`/linhud party status <n>`; 0 hides
+* need up to settings.status_lines (`/cc party status <n>`; 0 hides
 * them); any past that are left off. a member with none takes no extra room.
 *
 * a member's pet gets a slimmer line under them: name and hp bar,

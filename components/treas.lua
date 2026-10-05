@@ -11,8 +11,8 @@
 * loading the addon) shows ??? until a couple of new drops have shown how the
 * server's clock maps to ours.
 *
-* `/linhud treas demo` fills the pool with fake items to try it out solo;
-* lotting and passing those never reaches the server. `/linhud treas clock`
+* `/cc treas demo` fills the pool with fake items to try it out solo;
+* lotting and passing those never reaches the server. `/cc treas clock`
 * says what's known about the server's clock.
 --]]
 
@@ -349,8 +349,8 @@ end
 
 --[[ commands ]]--
 
----/linhud treas demo - toggles a fake pool to try the panel out with.
----/linhud treas clock - what's known about the server's pool clock.
+---/cc treas demo - toggles a fake pool to try the panel out with.
+---/cc treas clock - what's known about the server's pool clock.
 function treas.command(ctx, args)
     if (args[1] == 'demo') then
         demo = not demo;

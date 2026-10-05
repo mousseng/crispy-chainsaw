@@ -26,7 +26,7 @@
 *                                        packet_in event), even while hidden.
 *                                        check e.id first; this runs a lot.
 *   command   fn(ctx, args) -> handled, message
-*                                        optional; `/linhud <name> ...` args the
+*                                        optional; `/cc <name> ...` args the
 *                                        hud doesn't handle itself. settings
 *                                        are saved after a handled command.
 *   destroy   fn(ctx)                    optional; called before the module is

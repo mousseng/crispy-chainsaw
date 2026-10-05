@@ -4,7 +4,7 @@
 * attached at load, so it sees the traces luajit tries while the hud warms up;
 * code that keeps aborting gets blacklisted and is never retried, so attaching
 * later would miss it. once warm, traces are rare, so this costs nothing per
-* frame. `/linhud jit` writes the summary to a file.
+* frame. `/cc jit` writes the summary to a file.
 --]]
 
 local jitlog = {};
@@ -19,7 +19,7 @@ local aborts = {};  -- 'start | abort location | reason' -> count
 local stops = {};   -- start location -> compiled trace count
 local naborts, nstops = 0, 0;
 
--- aborts per 10s window, so `/linhud stats` can show whether anything is still
+-- aborts per 10s window, so `/cc stats` can show whether anything is still
 -- failing once the hud is warm.
 local WINDOW = 10;
 local window_start, window_aborts, last_window = os.time(), 0, nil;

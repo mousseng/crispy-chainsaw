@@ -25,17 +25,17 @@ pcall(ffi.cdef, [[
         float    x, y, z, rhw;
         uint32_t color;
         float    u, v;
-    } linhud_vertex_t;
+    } cc_vertex_t;
 ]]);
 
 local render = {};
 
-local VERTEX_SIZE  = ffi.sizeof('linhud_vertex_t');
+local VERTEX_SIZE  = ffi.sizeof('cc_vertex_t');
 local MAX_PER_CALL = 16384; -- quads addressable with 16-bit indices
 
 -- vertex storage grows as needed and is reused across frames.
 local capacity = 1024;
-local verts    = ffi.new('linhud_vertex_t[?]', capacity * 4);
+local verts    = ffi.new('cc_vertex_t[?]', capacity * 4);
 local nquads   = 0;
 
 -- index pattern is identical for every quad, so it is built once.
@@ -83,7 +83,7 @@ local last_stats = { quads = 0, calls = 0 };
 * expansion avoids branches that vary from quad to quad: clipping is min/max,
 * a quad clipped away is written with zero area rather than skipped, and the
 * per-vertex constants (z, rhw) are written once when the array is allocated.
-* `/linhud jit` lists whatever still fails to compile.
+* `/cc jit` lists whatever still fails to compile.
 --]]
 
 --[[ records ]]--
@@ -143,7 +143,7 @@ prefill(0, capacity * 4);
 local function grow(need)
     local ncap = capacity * 2;
     while (ncap < need) do ncap = ncap * 2; end
-    local nv = ffi.new('linhud_vertex_t[?]', ncap * 4);
+    local nv = ffi.new('cc_vertex_t[?]', ncap * 4);
     ffi.copy(nv, verts, nquads * 4 * VERTEX_SIZE);
     verts = nv;
     prefill(nquads * 4, ncap * 4);

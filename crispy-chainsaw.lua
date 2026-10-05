@@ -1,4 +1,4 @@
-addon.name = 'linhud'
+addon.name = 'crispy-chainsaw'
 addon.author = 'lin'
 addon.version = 'v0-slop (84fc671d)'
 addon.desc = 'performant HUD for ashita'
@@ -36,7 +36,7 @@ local defaults = T{
     components = hud.defaults(),
 };
 
-local linhud = {
+local cc = {
     settings = nil,
 };
 
@@ -62,11 +62,11 @@ local timing = {
 local ui_state = {}; -- client.poll output, reused every frame
 
 local function msg(fmt, ...)
-    print(('\30\81[\30\06linhud\30\81]\30\01 ' .. fmt):format(...));
+    print(('\30\81[\30\06crispy-chainsaw\30\81]\30\01 ' .. fmt):format(...));
 end
 
 local function user_dir()
-    return (AshitaCore:GetInstallPath():gsub('[\\/]+$', '')) .. '/config/addons/linhud';
+    return (AshitaCore:GetInstallPath():gsub('[\\/]+$', '')) .. '/config/addons/crispy-chainsaw';
 end
 
 local function apply_theme(name, scale)
@@ -76,8 +76,8 @@ local function apply_theme(name, scale)
         return false;
     end
     text.restyle();
-    if (linhud.settings.theme ~= name or linhud.settings.scale ~= scale) then
-        linhud.settings.theme, linhud.settings.scale = name, scale;
+    if (cc.settings.theme ~= name or cc.settings.scale ~= scale) then
+        cc.settings.theme, cc.settings.scale = name, scale;
         settings.save();
     end
     return true;
@@ -86,7 +86,7 @@ end
 ---(re)binds everything to a settings table; runs on load and whenever the
 ---settings library reloads (e.g. switching characters).
 local function use_settings(s)
-    linhud.settings = s;
+    cc.settings = s;
     hud.bind(s);
     local active = theme.active();
     if (active == nil or active.name ~= s.theme or active.scale ~= s.scale) then
@@ -104,7 +104,7 @@ end
 ---full traceback in errors.log where it doesn't flood the chat log.
 hud.on_error = function (name, what, err, trace)
     msg('\30\68%s failed (%s) and was turned off:\30\01 %s', name, what, err);
-    msg('details in errors.log; /linhud %s reload to try again', name);
+    msg('details in errors.log; /cc %s reload to try again', name);
     ashita.fs.create_dir(user_dir());
     local f = io.open(user_dir() .. '/errors.log', 'a');
     if (f ~= nil) then
@@ -125,7 +125,7 @@ ashita.events.register('load', 'load_cb', function ()
     use_settings(settings.load(defaults));
     local missing = client.missing();
     if (#missing > 0) then
-        msg('couldn\'t find the client data for: %s; linhud won\'t hide for those', table.concat(missing, ', '));
+        msg('couldn\'t find the client data for: %s; crispy-chainsaw won\'t hide for those', table.concat(missing, ', '));
     end
 end);
 
@@ -237,7 +237,7 @@ local function write_atlas(which)
         return;
     end
     local path = which ~= nil and ('%s/atlas_%s.png'):format(user_dir(), which)
-        or ('%s/atlas_%s.png'):format(user_dir(), linhud.settings.theme);
+        or ('%s/atlas_%s.png'):format(user_dir(), cc.settings.theme);
     ashita.fs.create_dir(user_dir());
     local f, ferr = io.open(path, 'wb');
     if (f == nil) then
@@ -251,13 +251,13 @@ end
 
 ashita.events.register('command', 'command_cb', function (e)
     local args = e.command:args();
-    if (#args == 0 or args[1] ~= '/linhud') then
+    if (#args == 0 or (args[1] ~= '/cc' and args[1] ~= '/crispy-chainsaw')) then
         return;
     end
     e.blocked = true;
-    local s = linhud.settings;
+    local s = cc.settings;
 
-    -- Handle: /linhud theme [name] - Shows or switches the active theme.
+    -- Handle: /cc theme [name] - Shows or switches the active theme.
     if (#args >= 2 and args[2] == 'theme') then
         if (#args == 2) then
             msg('theme: %s (scale %.2f)', s.theme, s.scale);
@@ -267,7 +267,7 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Handle: /linhud scale <n> - Rebuilds the theme at a new ui scale.
+    -- Handle: /cc scale <n> - Rebuilds the theme at a new ui scale.
     if (#args == 3 and args[2] == 'scale') then
         local n = tonumber(args[3]);
         if (n == nil or n < 0.5 or n > 4) then
@@ -278,13 +278,13 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Handle: /linhud (unlock | lock) - Toggles moving components with the mouse.
+    -- Handle: /cc (unlock | lock) - Toggles moving components with the mouse.
     if (#args == 2 and (args[2] == 'unlock' or args[2] == 'lock')) then
         hud.set_unlocked(args[2] == 'unlock');
         return;
     end
 
-    -- Handle: /linhud list - Lists components and whether they're enabled.
+    -- Handle: /cc list - Lists components and whether they're enabled.
     if (#args == 2 and args[2] == 'list') then
         for _, c in ipairs(hud.list()) do
             local state = c.failed and ('failed: ' .. c.failed) or (c.enabled and 'on' or 'off');
@@ -293,7 +293,7 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Handle: /linhud hide [condition] [on | off] - Shows or sets which client states hide the hud.
+    -- Handle: /cc hide [condition] [on | off] - Shows or sets which client states hide the hud.
     if (#args >= 2 and args[2] == 'hide') then
         if (#args == 2) then
             for _, cond in ipairs(client.CONDITIONS) do
@@ -309,7 +309,7 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Handle: /linhud state - Shows the client states the hud hides for, as currently read.
+    -- Handle: /cc state - Shows the client states the hud hides for, as currently read.
     if (#args == 2 and args[2] == 'state') then
         for _, cond in ipairs(client.CONDITIONS) do
             msg('%s: %s', cond, ui_state[cond] and 'yes' or 'no');
@@ -318,7 +318,7 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Handle: /linhud stats - Shows renderer cost.
+    -- Handle: /cc stats - Shows renderer cost.
     if (#args == 2 and args[2] == 'stats') then
         local st = render.stats();
         msg('%d quads, %d draw calls, cpu %.3f ms avg / %.3f ms worst (last 1s)', st.quads, st.calls, timing.avg, timing.max);
@@ -335,7 +335,7 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Handle: /linhud jit - Writes which code luajit couldn't compile, and why.
+    -- Handle: /cc jit - Writes which code luajit couldn't compile, and why.
     if (#args == 2 and args[2] == 'jit') then
         local path = ('%s/jit.txt'):format(user_dir());
         ashita.fs.create_dir(user_dir());
@@ -348,19 +348,19 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Handle: /linhud quads - Writes the last frame's quads and glyph metrics to a file.
+    -- Handle: /cc quads - Writes the last frame's quads and glyph metrics to a file.
     if (#args == 2 and args[2] == 'quads') then
         write_quads();
         return;
     end
 
-    -- Handle: /linhud dump [icons | status] - Saves the theme atlas (or an icon atlas) to a png for inspection.
+    -- Handle: /cc dump [icons | status] - Saves the theme atlas (or an icon atlas) to a png for inspection.
     if ((#args == 2 or (#args == 3 and (args[3] == 'icons' or args[3] == 'status'))) and args[2] == 'dump') then
         write_atlas(args[3]);
         return;
     end
 
-    -- Handle: /linhud <component> grow <dir> - Sets which way a component grows.
+    -- Handle: /cc <component> grow <dir> - Sets which way a component grows.
     if (#args >= 3 and args[3] == 'grow' and hud.get(args[2]) ~= nil) then
         local cs = hud.get(args[2]).ctx.settings;
         if (#args == 3) then
@@ -373,7 +373,7 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    -- Handle: /linhud <component> hide [condition] [on | off | default] - Overrides a hide condition for one component.
+    -- Handle: /cc <component> hide [condition] [on | off | default] - Overrides a hide condition for one component.
     if (#args >= 3 and args[3] == 'hide' and hud.get(args[2]) ~= nil) then
         local own = hud.get(args[2]).ctx.settings.hide or {};
         local function describe(cond)
@@ -395,19 +395,19 @@ ashita.events.register('command', 'command_cb', function (e)
             hud.set_hide(args[2], args[4], on);
             msg('%s hides during %s: %s', args[2], args[4], describe(args[4]));
         else
-            msg('usage: /linhud %s hide <condition> on|off|default', args[2]);
+            msg('usage: /cc %s hide <condition> on|off|default', args[2]);
         end
         return;
     end
 
-    -- Handle: /linhud <component> reload - Re-requires a component's module (after an error or an edit).
+    -- Handle: /cc <component> reload - Re-requires a component's module (after an error or an edit).
     if (#args == 3 and args[3] == 'reload' and hud.get(args[2]) ~= nil) then
         hud.reload(args[2]);
         msg('%s: reloaded', args[2]);
         return;
     end
 
-    -- Handle: /linhud <component> <args...> - Commands a component handles itself (e.g. exp width).
+    -- Handle: /cc <component> <args...> - Commands a component handles itself (e.g. exp width).
     if (#args >= 3 and args[3] ~= 'on' and args[3] ~= 'off' and hud.get(args[2]) ~= nil) then
         local handled, message = hud.command(args[2], { select(3, unpack(args)) });
         if (handled) then
@@ -416,7 +416,7 @@ ashita.events.register('command', 'command_cb', function (e)
         end
     end
 
-    -- Handle: /linhud <component> [on | off] - Toggles or sets a component.
+    -- Handle: /cc <component> [on | off] - Toggles or sets a component.
     if (#args >= 2 and hud.get(args[2]) ~= nil) then
         local c = hud.get(args[2]);
         local on;
@@ -427,5 +427,5 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    msg('usage: /linhud <component> [on|off] | <component> grow <dir> | <component> reload | <component> hide [cond] [on|off|default] | hide [cond] [on|off] | state | list | unlock | lock | theme [name] | scale <n> | stats | jit | quads | dump [icons|status]');
+    msg('usage: /cc <component> [on|off] | <component> grow <dir> | <component> reload | <component> hide [cond] [on|off|default] | hide [cond] [on|off] | state | list | unlock | lock | theme [name] | scale <n> | stats | jit | quads | dump [icons|status]');
 end);

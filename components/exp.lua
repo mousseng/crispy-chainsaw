@@ -110,7 +110,7 @@ end
 
 --[[ commands ]]--
 
----/linhud exp width [n]
+---/cc exp width [n]
 function exp.command(ctx, args)
     if (args[1] ~= 'width') then return false; end
     local n = tonumber(args[2]);

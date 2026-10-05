@@ -519,7 +519,7 @@ end
 
 --[[ commands ]]--
 
----/linhud inv columns <n> | rows <n> | unified [on|off]
+---/cc inv columns <n> | rows <n> | unified [on|off]
 function inv.command(ctx, args)
     local s = ctx.settings;
     if (args[1] == 'columns' or args[1] == 'rows') then
@@ -540,7 +540,7 @@ function inv.command(ctx, args)
         elseif (args[2] == nil) then
             s.unified = s.unified == false;
         else
-            return true, 'usage: /linhud inv unified [on|off]';
+            return true, 'usage: /cc inv unified [on|off]';
         end
         return true, ('inv unified: %s'):format(s.unified and 'on' or 'off');
     end

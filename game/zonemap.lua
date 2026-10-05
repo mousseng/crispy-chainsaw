@@ -40,7 +40,7 @@ pcall(ffi.cdef, [[
         uint16_t dat_offset;
         int16_t  offset_x;
         int16_t  offset_y;
-    } linhud_map_entry_t;
+    } cc_map_entry_t;
 
     typedef struct {
         uint32_t size;
@@ -55,10 +55,10 @@ pcall(ffi.cdef, [[
         uint32_t used_colors;
         uint32_t important_colors;
         uint32_t type;
-    } linhud_map_image_t;
+    } cc_map_image_t;
     #pragma pack(pop)
 
-    typedef int32_t (__thiscall* linhud_floor_fn)(void* self, float x, float y, float z);
+    typedef int32_t (__thiscall* cc_floor_fn)(void* self, float x, float y, float z);
 
     typedef struct {
         void*    base;
@@ -68,8 +68,8 @@ pcall(ffi.cdef, [[
         uint32_t state;
         uint32_t protect;
         uint32_t type;
-    } linhud_mbi_t;
-    size_t VirtualQuery(const void* addr, linhud_mbi_t* info, size_t len);
+    } cc_mbi_t;
+    size_t VirtualQuery(const void* addr, cc_mbi_t* info, size_t len);
 ]]);
 -- separately: these may already be declared by something else in this state.
 pcall(ffi.cdef, [[ typedef struct FILE FILE; ]]);
@@ -91,7 +91,7 @@ local zonemap = {};
 
 local MEM_COMMIT, PAGE_NOACCESS, PAGE_GUARD = 0x1000, 0x01, 0x100;
 
-local entries = nil;           -- linhud_map_entry_t*
+local entries = nil;           -- cc_map_entry_t*
 local index = nil;             -- zone -> floor -> entry index
 local floors = {};             -- zone -> number of floors with a map
 local floor_fn, floor_obj = nil, nil;
@@ -107,7 +107,7 @@ end
 ---how many bytes from addr (up to len) are committed, readable memory: reading
 ---past a mapped region through ffi is an access violation, not an error.
 local function readable(addr, len)
-    local mbi = ffi.new('linhud_mbi_t');
+    local mbi = ffi.new('cc_mbi_t');
     local at, stop = addr, addr + len;
     while (at < stop) do
         if (C.VirtualQuery(ffi.cast('void*', at), mbi, ffi.sizeof(mbi)) == 0) then break; end
@@ -132,13 +132,13 @@ function zonemap.init()
     local fn = mem.find('FFXiMain.dll', 0, FLOOR_FN_SIG, 0, 0);
     local obj = mem.find('FFXiMain.dll', 0, FLOOR_OBJ_SIG, 0x0E, 0);
     if (fn == 0 or obj == 0) then error('zonemap: floor check signatures not found', 0); end
-    floor_fn, floor_obj = ffi.cast('linhud_floor_fn', fn), obj;
+    floor_fn, floor_obj = ffi.cast('cc_floor_fn', fn), obj;
 
-    local size = ffi.sizeof('linhud_map_entry_t');
+    local size = ffi.sizeof('cc_map_entry_t');
     local count = math.floor(readable(ptr, (MAX_ENTRIES + 1) * size) / size);
     trace('init: table at 0x%08X, %d readable entries; floor fn 0x%08X, obj at 0x%08X', ptr, count, fn, obj);
     if (count == 0) then error('zonemap: map table isn\'t readable', 0); end
-    entries = ffi.cast('linhud_map_entry_t*', ptr);
+    entries = ffi.cast('cc_map_entry_t*', ptr);
     index = {};
     for i = 0, count - 1 do
         local e = entries[i];
@@ -238,7 +238,7 @@ end
 
 ---block-compressed images go to the gpu as they are.
 local function load_dxt(buf, size, img, fmt)
-    local at = IMAGE_AT + ffi.sizeof('linhud_map_image_t') + 8; -- 8 unknown bytes follow the header
+    local at = IMAGE_AT + ffi.sizeof('cc_map_image_t') + 8; -- 8 unknown bytes follow the header
     local block = fmt == 'D3DFMT_DXT1' and 8 or 16;
     -- one row of blocks per 4 pixel rows; Pitch is the bytes per row of blocks
     local row, rows = math.ceil(img.width / 4) * block, math.ceil(img.height / 4);
@@ -262,7 +262,7 @@ end
 ---uncompressed images: bottom-up rows of 8-bit paletted, 16/24/32-bit pixels.
 local function load_bitmap(buf, size, img)
     local w, h, bits = img.width, img.height, img.bits;
-    local at = IMAGE_AT + ffi.sizeof('linhud_map_image_t');
+    local at = IMAGE_AT + ffi.sizeof('cc_map_image_t');
     local palette = nil;
     if (bits == 8) then
         palette = ffi.cast('uint32_t*', buf + at);
@@ -318,9 +318,9 @@ function zonemap.texture(m)
     trace('texture: zone %d floor %d, reading %s', m.zone, m.floor, path);
     local buf, size = read_file(path);
     if (buf == nil) then return nil, size; end
-    if (size < IMAGE_AT + ffi.sizeof('linhud_map_image_t')) then return nil, 'not a map dat: ' .. path; end
+    if (size < IMAGE_AT + ffi.sizeof('cc_map_image_t')) then return nil, 'not a map dat: ' .. path; end
 
-    local img = ffi.cast('linhud_map_image_t*', buf + IMAGE_AT);
+    local img = ffi.cast('cc_map_image_t*', buf + IMAGE_AT);
     if (img.width <= 0 or img.height <= 0 or img.width > 4096 or img.height > 4096) then
         return nil, 'bad image size in ' .. path;
     end

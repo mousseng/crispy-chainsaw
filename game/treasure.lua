@@ -1,7 +1,7 @@
 --[[
 * treasure pool drop times, from the server's 0x0D2 packets.
 *
-* always loaded (linhud.lua feeds it every incoming packet), so the treas
+* always loaded (crispy-chainsaw.lua feeds it every incoming packet), so the treas
 * component can be toggled without losing track of when things dropped.
 *
 * each 0x0D2 says whether the item is a new drop or one that was already in
@@ -80,7 +80,7 @@ function treasure.expires(slot, id, drop)
     return math.floor(start / unit + offset + LIFETIME);
 end
 
----@return string a line for `/linhud treas clock`
+---@return string a line for `/cc treas clock`
 function treasure.describe()
     if (unit == nil) then
         return ('clock unknown%s'):format(sample and ' (one drop seen)' or '');

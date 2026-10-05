@@ -1,7 +1,10 @@
-linhud
+crispy chainsaw
 ===============================================================================
 
-a performant HUD that i named after myself because i guess i'm a narcissist.
+a performant HUD. why `crispy-chainsaw`? github recommended it when i was
+preparing to publish, and i thought it was funny. truly inspired stuff from
+microsoft.
+
 `xitools` served me very well, but the framerate tax was far too noticeable,
 and also it's just tradition that i rewrite my UI every time i start playing
 again.
@@ -13,9 +16,9 @@ i highly recommend including the following binds in your Ashita startup script
 if you are a keyboard/mouse player:
 
 ```
-/bind %I up /linhud inv
-/bind %M up /linhud map
-/bind %T up /linhud treas
+/bind %I up /cc inv
+/bind %M up /cc map
+/bind %T up /cc treas
 ```
 
 usage
@@ -32,44 +35,44 @@ there are 6 components currently:
 
 every component supports these commands:
 
-- `/linhud <component> [on|off]`
-- `/linhud <component> grow [up|down|left|right|hcenter|vcenter|auto]`
-- `/linhud <component> hide [condition] [on|off|default]`
-- `/linhud <component> reload`
+- `/cc <component> [on|off]`
+- `/cc <component> grow [up|down|left|right|hcenter|vcenter|auto]`
+- `/cc <component> hide [condition] [on|off|default]`
+- `/cc <component> reload`
 
 and some have their own:
 
-- `/linhud exp width [n]`
-- `/linhud party status [n]` - how many lines of buffs to show (0 hides them)
-- `/linhud target demo` - fakes a skillchain on your target (mostly for testing)
-- `/linhud treas demo` - toggle a fake pool to try the panel out solo
-- `/linhud treas clock` - what's known about the server's pool clock
-- `/linhud map size|zoom|marker [n]` - map size (128-2048), zoom (1-8), marker scale (0.5-4)
-- `/linhud map opacity [still] [moving]` - opacity while standing and while moving (0-1)
-- `/linhud map info`
-- `/linhud inv columns|rows [n]` - configure the inventory grid size
-- `/linhud inv unified [on|off]` - one sorted grid per tab, or a heading and grid per bag
+- `/cc exp width [n]`
+- `/cc party status [n]` - how many lines of buffs to show (0 hides them)
+- `/cc target demo` - fakes a skillchain on your target (mostly for testing)
+- `/cc treas demo` - toggle a fake pool to try the panel out solo
+- `/cc treas clock` - what's known about the server's pool clock
+- `/cc map size|zoom|marker [n]` - map size (128-2048), zoom (1-8), marker scale (0.5-4)
+- `/cc map opacity [still] [moving]` - opacity while standing and while moving (0-1)
+- `/cc map info`
+- `/cc inv columns|rows [n]` - configure the inventory grid size
+- `/cc inv unified [on|off]` - one sorted grid per tab, or a heading and grid per bag
 
 ### general
 
-- `/linhud list` - show the toggle state of each comonent
-- `/linhud unlock` / `/linhud lock` - toggles drag-and-drop positioning of components
-- `/linhud hide [condition] [on|off]` - which client states hide the hud
+- `/cc list` - show the toggle state of each comonent
+- `/cc unlock` / `/linhud lock` - toggles drag-and-drop positioning of components
+- `/cc hide [condition] [on|off]` - which client states hide the hud
   - `loading`
   - `event`
   - `interface`
   - `map`
   - `chat`
-- `/linhud state` - which of those states the client is in right now
-- `/linhud theme [name]` - show or switch the theme
-- `/linhud scale <n>` - ui scale, 0.5-4
+- `/cc state` - which of those states the client is in right now
+- `/cc theme [name]` - show or switch the theme
+- `/cc scale <n>` - ui scale, 0.5-4
 
 ### diagnostics
 
-- `/linhud stats` - renderer cost: quads, draw calls, frame time, jit aborts, icon cache
-- `/linhud jit` - write the code luajit couldn't compile, and why, to a file
-- `/linhud quads` - write the last frame's quads and glyph metrics to a file
-- `/linhud dump [icons|status]` - save the theme atlas (or an icon atlas) as a png
+- `/cc stats` - renderer cost: quads, draw calls, frame time, jit aborts, icon cache
+- `/cc jit` - write the code luajit couldn't compile, and why, to a file
+- `/cc quads` - write the last frame's quads and glyph metrics to a file
+- `/cc dump [icons|status]` - save the theme atlas (or an icon atlas) as a png
 
 TODO
 -------------------------------------------------------------------------------
