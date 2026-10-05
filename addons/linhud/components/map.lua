@@ -324,14 +324,12 @@ local LIMITS = {
 };
 
 ---grows or shrinks the map by a wheel notch, keeping the spot under the
----cursor (mx, my, relative to the map) where it is. it stops at the
----screen's shorter side, past which it couldn't stay on screen.
+---cursor (mx, my, relative to the map) where it is. it may outgrow the
+---screen; drag it to see the rest.
 local function resize(ctx, mx, my, up)
     local s = ctx.settings;
-    local fit = math.floor(math.min(ctx.screen_w, ctx.screen_h) / ctx.scale);
-    local hi = math.max(LIMITS.size[1], math.min(LIMITS.size[2], fit));
     local n = math.floor(s.size * (up and WHEEL or 1 / WHEEL) + 0.5);
-    n = math.max(LIMITS.size[1], math.min(hi, n));
+    n = math.max(LIMITS.size[1], math.min(LIMITS.size[2], n));
     if (n == s.size or ctx.w <= 0) then return; end
     -- held relative to the frame on screen, which may be mid-ease
     pin_x, pin_y, pin_u, pin_v = ctx.x + mx, ctx.y + my, mx / ctx.w, my / ctx.h;

@@ -276,6 +276,14 @@ local function pivot(s, a)
     return GROW_X[s.grow_x] or a[1], GROW_Y[s.grow_y] or a[2];
 end
 
+---clamps a component's position on one axis: one that fits stays wholly on
+---screen, and one larger than the screen keeps the screen covered.
+local function clamp(v, len, screen)
+    local lo, hi = 0, screen - len;
+    if (hi < lo) then lo, hi = hi, lo; end
+    return math.max(lo, math.min(v, hi));
+end
+
 ---@param x number|nil where the component asked to be this frame, if anywhere
 local function place(c, scale, x, y)
     local s, ctx = c.ctx.settings, c.ctx;
@@ -289,8 +297,8 @@ local function place(c, scale, x, y)
         y = screen_h * a[2] + s.y * scale - ctx.h * py;
     end
     -- keep it on screen (e.g. after a resolution change)
-    x = math.max(0, math.min(x, screen_w - ctx.w));
-    y = math.max(0, math.min(y, screen_h - ctx.h));
+    x = clamp(x, ctx.w, screen_w);
+    y = clamp(y, ctx.h, screen_h);
     return math.floor(x + 0.5), math.floor(y + 0.5);
 end
 
@@ -505,8 +513,8 @@ function hud.mouse(e)
 
     if (ev == 'move') then
         if (drag ~= nil) then
-            drag.x = math.max(0, math.min(e.x - drag.dx, screen_w - drag.c.ctx.w));
-            drag.y = math.max(0, math.min(e.y - drag.dy, screen_h - drag.c.ctx.h));
+            drag.x = clamp(e.x - drag.dx, drag.c.ctx.w, screen_w);
+            drag.y = clamp(e.y - drag.dy, drag.c.ctx.h, screen_h);
             e.blocked = true;
         end
         return;
