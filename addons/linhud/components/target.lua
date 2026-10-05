@@ -14,7 +14,7 @@
 * can be magic burst), rather than an opener's, is led by "Chain!". it goes
 * once the window closes. names too wide for the row (a three-property
 * opener) are shortened.
-* `/linhud target test` puts a made-up chain on the current target.
+* `/linhud target demo` puts a made-up chain on the current target.
 --]]
 
 local bit     = require('bit');
@@ -300,13 +300,13 @@ end
 
 --[[ commands ]]--
 
----/linhud target test - a made-up skillchain on the current target; again
+---/linhud target demo - a made-up skillchain on the current target; again
 ---for another kind.
 function target.command(ctx, args)
-    if (args[1] == 'test') then
+    if (args[1] == 'demo') then
         if (main.index == 0) then return true, 'target something first'; end
-        sc.test(main.sid);
-        return true, 'target: added a test chain';
+        sc.demo(main.sid);
+        return true, 'target: added a demo chain';
     end
     return false;
 end

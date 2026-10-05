@@ -217,22 +217,22 @@ function skillchain.tick(t)
     end
 end
 
--- made-up resonances for test(), in turn: two elements, four (both chained),
+-- made-up resonances for demo(), in turn: two elements, four (both chained),
 -- an opener's two properties, then three (Disaster's: too wide in full, so
 -- shortened)
-local TESTS = {
+local DEMOS = {
     { 'Fusion', chained = true }, { 'Light', chained = true }, { 'Fragmentation', 'Scission' },
     { 'Transfixion', 'Scission', 'Gravitation' },
 };
-local next_test = 1;
+local next_demo = 1;
 
 ---a made-up chain on the monster with server id `id`, to see it without a
 ---party. each call shows the next of a few resonances.
-function skillchain.test(id)
+function skillchain.demo(id)
     local t = skillchain.now();
-    local test = TESTS[next_test];
-    skillchain.mobs[id] = { resonance = test, chained = test.chained == true, since = t, opens = t + 2, closes = t + 2 + BASE_WINDOW };
-    next_test = next_test % #TESTS + 1;
+    local demo = DEMOS[next_demo];
+    skillchain.mobs[id] = { resonance = demo, chained = demo.chained == true, since = t, opens = t + 2, closes = t + 2 + BASE_WINDOW };
+    next_demo = next_demo % #DEMOS + 1;
 end
 
 return skillchain;
