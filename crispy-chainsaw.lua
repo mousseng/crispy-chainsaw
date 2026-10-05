@@ -1,6 +1,6 @@
 addon.name = 'crispy-chainsaw'
 addon.author = 'lin'
-addon.version = 'v0-slop (84fc671d)'
+addon.version = 'v0-slop (e4d4450c)'
 addon.desc = 'performant HUD for ashita'
 
 require('common');
