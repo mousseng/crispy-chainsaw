@@ -1,6 +1,6 @@
 addon.name = 'linhud'
 addon.author = 'lin'
-addon.version = '0.1'
+addon.version = 'v0-slop (84fc671d)'
 addon.desc = 'performant HUD for ashita'
 
 require('common');
