@@ -1,6 +1,6 @@
 --[[
 * zone map: the current floor's map as a translucent overlay, north up, with
-* arrowheads for the player (and party members) showing where they face, and
+* triangles for the player (and party members) showing where they face, and
 * dots for the alliance, other players, npcs and enemies.
 *
 * the map fades from `opacity` to `opacity_moving` while the player moves.
@@ -237,7 +237,7 @@ local function dots(l, color, edge, scale)
     end
 end
 
----an arrowhead at world (x, y) pointing along the entity's heading.
+---a triangle at world (x, y) pointing along the entity's heading.
 local function arrow(x, y, heading, color, edge, scale)
     local mx, my = zonemap.to_map(cur, x, y);
     local px, py = sx0 + (mx - ox) * k, sy0 + (my - oy) * k;
