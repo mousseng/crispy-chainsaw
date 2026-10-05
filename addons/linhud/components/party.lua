@@ -10,7 +10,7 @@
 * need up to settings.status_lines (`/linhud party status <n>`; 0 hides
 * them); any past that are left off. a member with none takes no extra room.
 *
-* a member's pet gets a slimmer, indented line under them: name and hp bar,
+* a member's pet gets a slimmer line under them: name and hp bar,
 * which is all the client knows about someone else's pet. it shows only while
 * both owner and pet are spawned near us; past update range the owner's pet
 * index goes stale, so it's dropped rather than trusted.
@@ -280,8 +280,9 @@ local HP_W, MP_W, TP_W, BAR_GAP, BAR_H, BAR_Y, NUM_Y = 104, 80, 60, 6, 7, 17, 23
 local STATUS_S, STATUS_GAP, STATUS_Y = 16, 2, ROW_H - 1;
 local PER_LINE = floor((HP_W + MP_W + TP_W + BAR_GAP * 2 + STATUS_GAP) / (STATUS_S + STATUS_GAP));
 -- the pet line, under the member's status icons: its height, the name's
--- indent and size, and a thinner hp bar lined up with the mp column.
-local PET_H, PET_INDENT, PET_FONT, PET_BAR_H, PET_BAR_Y = 16, 12, 11, 5, 6;
+-- size (right-aligned against the bar), and a thinner hp bar lined up with
+-- the mp column.
+local PET_H, PET_FONT, PET_BAR_H, PET_BAR_Y = 16, 11, 5, 6;
 
 local bar = widgets.bar;
 
@@ -496,11 +497,11 @@ function party.draw(r, ctx, x, y)
 
         if (m.pet_index ~= 0) then
             local py = ry + (row_h[i] - PET_H) * s;
-            local px = hx + PET_INDENT * s;
+            local px = mx - BAR_GAP * s;
             m.pet_text = m.pet_text or text.new({ size = PET_FONT, bold = false });
             m.pet_text:set(m.pet_name);
-            r.push_clip(px, py - 2 * s, mx - px - BAR_GAP * s, PET_H * s);
-            m.pet_text:draw(px, py, c('pet'));
+            r.push_clip(hx, py - 2 * s, px - hx, PET_H * s);
+            m.pet_text:draw(px, py, c('pet'), 'right');
             r.pop_clip();
         end
     end
