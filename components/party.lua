@@ -11,7 +11,8 @@
 * them); any past that are left off. a member with none takes no extra room.
 *
 * a member's pet gets a slimmer line under them: name and hp bar,
-* which is all the client knows about someone else's pet. it shows only while
+* which is all the client knows about someone else's pet; our own pet's line
+* splits that bar's width into hp, mp and tp. it shows only while
 * both owner and pet are spawned near us; past update range the owner's pet
 * index goes stale, so it's dropped rather than trusted.
 --]]
@@ -55,9 +56,11 @@ for i = 0, 5 do
         -- current values rather than animate from whoever was here before.
         sid = 0, fresh = true,
         hp_trail = widgets.trail_new(), mp_trail = widgets.trail_new(), tp_trail = widgets.trail_new(),
-        -- the pet line: entity index (0 = none), name, hp.
-        pet_index = 0, pet_name = '', pet_hpp = 0, pet_text = nil,
+        -- the pet line: entity index (0 = none), name, hp; mp and tp for our
+        -- own pet only.
+        pet_index = 0, pet_name = '', pet_hpp = 0, pet_mpp = 0, pet_tp = 0, pet_text = nil,
         pet_fresh = true, pet_trail = widgets.trail_new(),
+        pet_mp_trail = widgets.trail_new(), pet_tp_trail = widgets.trail_new(),
     };
 end
 local count = 0;
@@ -168,6 +171,11 @@ local function read_pet(m, ent, i)
     if (pet ~= 0) then
         m.pet_name = ent:GetName(pet) or '';
         m.pet_hpp = ent:GetHPPercent(pet) / 100;
+        if (i == 0) then
+            local player = AshitaCore:GetMemoryManager():GetPlayer();
+            m.pet_mpp = player:GetPetMPPercent() / 100;
+            m.pet_tp = player:GetPetTP();
+        end
     end
 end
 
@@ -247,8 +255,14 @@ local function step_trails(dt)
             if (m.pet_fresh) then
                 m.pet_fresh = false;
                 trail_reset(m.pet_trail, m.pet_hpp);
+                trail_reset(m.pet_mp_trail, m.pet_mpp);
+                trail_reset(m.pet_tp_trail, m.pet_tp / 3000);
             else
                 trail_step(m.pet_trail, m.pet_hpp, dt, true);
+                if (i == 0) then
+                    trail_step(m.pet_mp_trail, m.pet_mpp, dt, true);
+                    trail_step(m.pet_tp_trail, m.pet_tp / 3000, dt, false);
+                end
             end
         end
     end
@@ -281,7 +295,7 @@ local STATUS_S, STATUS_GAP, STATUS_Y = 16, 2, ROW_H - 1;
 local PER_LINE = floor((HP_W + MP_W + TP_W + BAR_GAP * 2 + STATUS_GAP) / (STATUS_S + STATUS_GAP));
 -- the pet line, under the member's status icons: its height, the name's
 -- size (right-aligned against the bar), and a thinner hp bar lined up with
--- the mp column.
+-- the mp column. our own pet's splits that span evenly into hp, mp and tp.
 local PET_H, PET_FONT, PET_BAR_H, PET_BAR_Y = 16, 11, 5, 6;
 
 local bar = widgets.bar;
@@ -451,7 +465,18 @@ function party.draw(r, ctx, x, y)
                 widgets.spinner(r, 'row_highlight', tx0, py - o, tw, pth, spin_c, pos + 0.25, SPIN_TAIL);
                 widgets.spinner(r, 'row_highlight', tx0, py - o, tw, pth, spin_c, pos + 0.75, SPIN_TAIL);
             end
-            bar(r, mx, py + PET_BAR_Y * s, (tx + TP_W * s) - mx, PET_BAR_H * s, m.pet_hpp, hp_color(m.pet_hpp), nil, m.pet_trail.shown);
+            local pby, pbh, span = py + PET_BAR_Y * s, PET_BAR_H * s, (tx + TP_W * s) - mx;
+            if (i == 0) then
+                local gap = BAR_GAP * s;
+                local pw = (span - gap * 2) / 3;
+                bar(r, mx, pby, pw, pbh, m.pet_hpp, hp_color(m.pet_hpp), nil, m.pet_trail.shown);
+                bar(r, mx + pw + gap, pby, pw, pbh, m.pet_mpp, c('mp'), nil, m.pet_mp_trail.shown);
+                local full, tps = m.pet_tp >= 1000, m.pet_tp_trail.shown * 3000;
+                bar(r, mx + (pw + gap) * 2, pby, pw, pbh, min(m.pet_tp, 1000) / 1000, full and c('tp_full') or c('tp'), full and c('tp_full') or nil,
+                    min(tps, 1000) / 1000, (m.pet_tp - 1000) / 2000, c('tp_over'), c('tp_over_alt'), tp_phase, (tps - 1000) / 2000);
+            else
+                bar(r, mx, pby, span, pbh, m.pet_hpp, hp_color(m.pet_hpp), nil, m.pet_trail.shown);
+            end
         end
     end
 
