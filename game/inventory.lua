@@ -164,11 +164,12 @@ end
 local access_ptr = ashita.memory.find('FFXiMain.dll', 0, 'A1????????8B88B4000000C1E907F6C101E9', 0, 0);
 
 ---whether the player can use the bag at all (some are locked behind content
----or account upgrades).
+---or account upgrades, and a bag with no slots is no use either way).
 function inventory.has_access(id)
     local inv = AshitaCore:GetMemoryManager():GetInventory();
     if (inv == nil) then return false; end
     if (id == 0) then return true; end
+    if (inv:GetContainerCountMax(id) == 0) then return false; end
     if (id >= 11 and id <= 16) then
         if (access_ptr == nil or access_ptr == 0) then return false; end
         local p = ashita.memory.read_uint32(access_ptr + 1);
@@ -178,7 +179,7 @@ function inventory.has_access(id)
         local v = ashita.memory.read_uint8(flags + 0xB4);
         return band(rshift(v, id - 9), 1) ~= 0;
     end
-    return inv:GetContainerCountMax(id) > 0;
+    return true;
 end
 
 --[[ reading ]]--
