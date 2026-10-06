@@ -70,6 +70,7 @@
 --]]
 
 local theme = require('ui.theme');
+local mem   = require('diag.mem');
 
 local hud = {};
 
@@ -361,7 +362,7 @@ end
 
 ---one component's frame; bails out at the first error (the component has been
 ---shut off by then).
-local function draw_component(r, c, dt, scale)
+local function draw_component_(r, c, dt, scale)
     local mod, ctx = c.mod, c.ctx;
     ctx.scale, ctx.screen_w, ctx.screen_h = scale, screen_w, screen_h;
     ctx.mouse_x, ctx.mouse_y = mouse_x, mouse_y;
@@ -383,6 +384,13 @@ local function draw_component(r, c, dt, scale)
     end
     ctx.w, ctx.h = w or 0, h or 0;
     ctx.hover = mouse_x >= x and mouse_x < x + ctx.w and mouse_y >= y and mouse_y < y + ctx.h;
+end
+
+-- garbage per component, for `/cc mem`.
+local function draw_component(r, c, dt, scale)
+    local k, e = mem.mark();
+    draw_component_(r, c, dt, scale);
+    mem.add(c.name, k, e);
 end
 
 local unlock_label = {}; -- component name -> text object, created on demand

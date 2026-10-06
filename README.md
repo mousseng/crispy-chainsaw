@@ -70,6 +70,7 @@ and some have their own:
 ### diagnostics
 
 - `/cc stats` - renderer cost: quads, draw calls, frame time, jit aborts, icon cache
+- `/cc mem [gc]` - memory: lua heap, garbage per frame, our textures, the game process' address space; `gc` runs a full collection first; `prof [frames]` charges each frame's allocations to source lines (top lines in chat, full list in memprof.txt)
 - `/cc jit` - write the code luajit couldn't compile, and why, to a file
 - `/cc quads` - write the last frame's quads and glyph metrics to a file
 - `/cc dump [icons|status]` - save the theme atlas (or an icon atlas) as a png

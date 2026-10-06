@@ -373,6 +373,18 @@ function text.restyle()
     end
 end
 
+---gdifonts textures held by live text, assuming 32-bit pixels. textures
+---replaced by a new string wait for the gc, and aren't counted.
+---@return number count, number bytes
+function text.mem()
+    local n, bytes = 0, 0;
+    for self in pairs(objects) do
+        local r = self.obj.texture ~= nil and self.obj.rect;
+        if (r) then n, bytes = n + 1, bytes + r.right * r.bottom * 4; end
+    end
+    return n, bytes;
+end
+
 function text.shutdown()
     objects = setmetatable({}, { __mode = 'k' });
     baselines, depths, probe = {}, {}, nil;

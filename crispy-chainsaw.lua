@@ -10,6 +10,7 @@ local settings = require('settings');
 local client   = require('game.client');
 local treasure = require('game.treasure');
 local jitlog   = require('diag.jitlog');
+local mem      = require('diag.mem');
 local atlas    = require('ui.atlas');
 local hud      = require('ui.hud');
 local png      = require('ui.png');
@@ -129,22 +130,58 @@ ashita.events.register('load', 'load_cb', function ()
     end
 end);
 
+local tb = 0; -- when the frame's build ended (see timing)
+
+local function frame(dt)
+    mem.frame_begin();
+    local k, e = mem.mark();
+    local vw, vh = render.viewport();
+    local state = client.poll(ui_state);
+    mem.add('setup (viewport, client state)', k, e);
+    render.begin_frame();
+    if (vw ~= nil) then
+        hud.frame(render, dt, vw, vh, text, state);
+    end
+    tb = ticks();
+    k, e = mem.mark();
+    render.end_frame();
+    mem.add('submit (icons, d3d calls)', k, e);
+    mem.frame_end();
+end
+
+-- ashita calls each event callback on a new coroutine. a new coroutine's stack
+-- starts at 45 slots and the frame regrows it twice (~1.2 KB of heap, every
+-- frame), so the frame runs on a coroutine of our own that lives across
+-- frames: its stack grows once.
+local frame_co = nil;
+
+local function frame_loop(dt)
+    while (true) do
+        frame(dt);
+        dt = coroutine.yield();
+    end
+end
+
 ashita.events.register('d3d_present', 'present_cb', function ()
     local t0 = ticks();
     local dt = (t0 - timing.last) / ticks_per_ms / 1000;
     timing.last = t0;
+    mem.event_thread(coroutine.running());
 
     if (theme.texture() == nil) then
         return;
     end
 
-    local _, vp = d3d8.get_device():GetViewport();
-    render.begin_frame();
-    if (vp ~= nil) then
-        hud.frame(render, dt, vp.Width, vp.Height, text, client.poll(ui_state));
+    local co = frame_co;
+    if (co == nil) then
+        co = coroutine.create(frame_loop);
+        frame_co = co;
     end
-    local tb = ticks();
-    render.end_frame();
+    local ok, err = coroutine.resume(co, dt);
+    if (not ok) then
+        frame_co = nil; -- dead; the next frame starts a new one
+        error(debug.traceback(co, tostring(err)), 0);
+    end
 
     local t1 = ticks();
     local cost = t1 - t0;
@@ -157,6 +194,7 @@ ashita.events.register('d3d_present', 'present_cb', function ()
         timing.max = timing.worst / ticks_per_ms;
         timing.total, timing.frames, timing.worst, timing.window = 0, 0, 0, t1;
         timing.build, timing.submit = 0, 0;
+        mem.roll();
     end
 end);
 
@@ -176,6 +214,45 @@ ashita.events.register('unload', 'unload_cb', function ()
     text.shutdown();
     theme.release();
 end);
+
+local function size(bytes)
+    if (bytes >= 1024 * 1024) then return ('%.1f MB'):format(bytes / (1024 * 1024)); end
+    return ('%.1f KB'):format(bytes / 1024);
+end
+
+local function show_mem()
+    local l = mem.lua();
+    msg('lua heap %s (peak %s in the last 1s), includes ffi.new cdata', size(l.heap * 1024), size(l.peak * 1024));
+    if (l.clean > 0) then
+        msg('  garbage per frame: %d bytes (%d frames; %d skipped for gc steps, %d for jit activity)', l.alloc, l.clean, l.gc, l.jit);
+    else
+        msg('  garbage per frame: unknown (%d frames had gc steps, %d jit activity)', l.gc, l.jit);
+    end
+    if (l.jit > 0) then
+        msg('  frames with jit activity: %d bytes each (trace objects, jit log)', l.jit_alloc);
+    end
+    msg('  between frames: %d bytes per frame (our other events, ashita\'s per-event coroutines)', l.between);
+    msg('  present callback ran on %d different coroutines in %d frames', l.threads, l.frames);
+    for _, sec in ipairs(mem.sections()) do
+        local ev = sec.events > 0 and (', %d trace events'):format(sec.events) or '';
+        msg('    %s: %s%s', sec.name, sec.bytes and ('%d bytes'):format(sec.bytes) or '?', ev);
+    end
+    local total = 0;
+    for kind, e in pairs(mem.textures()) do
+        msg('  %s: %d texture%s, %s', kind, e.n, e.n == 1 and '' or 's', size(e.bytes));
+        total = total + e.bytes;
+    end
+    local tn, tb = text.mem();
+    msg('  text: %d textures, ~%s (replaced ones wait for the gc)', tn, size(tb));
+    msg('  textures total ~%s (managed pool: plus a system memory copy each)', size(total + tb));
+    local p = mem.process();
+    if (p ~= nil) then
+        -- wine leaves private bytes at 0
+        msg('process (game + all addons): %sworking set %s (peak %s)',
+            p.private > 0 and ('private %s, '):format(size(p.private)) or '', size(p.working_set), size(p.peak_working_set));
+        msg('  address space %s / %s used', size(p.va_used), size(p.va_total));
+    end
+end
 
 local function write_quads()
     local path = ('%s/quads.txt'):format(user_dir());
@@ -325,6 +402,8 @@ ashita.events.register('command', 'command_cb', function (e)
         msg('  build %.3f ms (update + draw), submit %.3f ms (uploads + d3d calls)', timing.build_avg, timing.submit_avg);
         local total, recent = jitlog.counts();
         msg('  jit aborts: %d total, %s in the last 10s', total, recent and tostring(recent) or '(not 10s yet)');
+        local l = mem.lua();
+        msg('  lua heap %s, %s bytes garbage per frame', size(l.heap * 1024), l.clean > 0 and ('%d'):format(l.alloc) or '?');
         local icons = package.loaded['ui.icons'];
         if (icons ~= nil) then
             local is = icons.stats('items');
@@ -332,6 +411,39 @@ ashita.events.register('command', 'command_cb', function (e)
             local ss = icons.stats('status');
             msg('status icons: %d / %d cells used, %d decoded, %d failed', ss.used, ss.cells, ss.decoded, ss.failed);
         end
+        return;
+    end
+
+    -- Handle: /cc mem prof [frames] - Finds which source lines allocate during frames.
+    if ((#args == 3 or #args == 4) and args[2] == 'mem' and args[3] == 'prof') then
+        local n = math.max(1, math.min(600, tonumber(args[4] or '') or 60));
+        msg('profiling allocations over the next %d frames (it\'ll stutter)...', n);
+        mem.profile(n, function (lines)
+            local path = ('%s/memprof.txt'):format(user_dir());
+            ashita.fs.create_dir(user_dir());
+            local f = io.open(path, 'w');
+            if (f ~= nil) then
+                f:write(('garbage per frame by source line, over %d frames (interpreted)\n\n'):format(n));
+                for _, l in ipairs(lines) do f:write(('%8.1f  %s\n'):format(l.bytes, l.where)); end
+                f:close();
+            end
+            local total = 0;
+            for _, l in ipairs(lines) do total = total + l.bytes; end
+            msg('%.0f bytes per frame; top lines (all in %s):', total, path);
+            for i = 1, math.min(8, #lines) do
+                msg('  %6.0f  %s', lines[i].bytes, lines[i].where);
+            end
+        end);
+        return;
+    end
+
+    -- Handle: /cc mem [gc] - Shows memory use; gc runs a full collection first.
+    if ((#args == 2 or (#args == 3 and args[3] == 'gc')) and args[2] == 'mem') then
+        if (args[3] == 'gc') then
+            local before, after = mem.collect();
+            msg('full gc: lua heap %s -> %s', size(before * 1024), size(after * 1024));
+        end
+        show_mem();
         return;
     end
 
@@ -427,5 +539,5 @@ ashita.events.register('command', 'command_cb', function (e)
         return;
     end
 
-    msg('usage: /cc <component> [on|off] | <component> grow <dir> | <component> reload | <component> hide [cond] [on|off|default] | hide [cond] [on|off] | state | list | unlock | lock | theme [name] | scale <n> | stats | jit | quads | dump [icons|status]');
+    msg('usage: /cc <component> [on|off] | <component> grow <dir> | <component> reload | <component> hide [cond] [on|off|default] | hide [cond] [on|off] | state | list | unlock | lock | theme [name] | scale <n> | stats | mem [gc|prof [frames]] | jit | quads | dump [icons|status]');
 end);

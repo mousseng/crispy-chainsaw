@@ -18,6 +18,7 @@ local started = {}; -- trace number -> start location
 local aborts = {};  -- 'start | abort location | reason' -> count
 local stops = {};   -- start location -> compiled trace count
 local naborts, nstops = 0, 0;
+local nevents = 0; -- every trace event, for diag/mem: tracing allocates too
 
 -- aborts per 10s window, so `/cc stats` can show whether anything is still
 -- failing once the hud is warm.
@@ -58,6 +59,7 @@ local function fmterr(err, info)
 end
 
 local function on_trace(what, tr, func, pc, otr, oex)
+    nevents = nevents + 1;
     if (what == 'start') then
         started[tr] = fmtfunc(func, pc);
     elseif (what == 'stop') then
@@ -94,6 +96,11 @@ local function sorted(t)
     for k, n in pairs(t) do out[#out + 1] = { k = k, n = n }; end
     table.sort(out, function (a, b) return a.n > b.n; end);
     return out;
+end
+
+---trace events (starts, stops, aborts...) so far.
+function jitlog.events()
+    return nevents;
 end
 
 ---writes the log to path. returns the abort and compiled trace counts.

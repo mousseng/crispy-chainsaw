@@ -25,6 +25,7 @@
 local ffi   = require('ffi');
 local bit   = require('bit');
 local atlas = require('ui.atlas');
+local mem   = require('diag.mem');
 
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift;
 local floor = math.floor;
@@ -178,7 +179,7 @@ local function create(name)
         ffi.fill(bits + y * pitch, SHEET * 4);
     end
     t:UnlockRect(0);
-    return t;
+    return mem.texture(t, 'icon sheets', SHEET * SHEET * 4);
 end
 
 local function cell_uv(cell)
@@ -198,7 +199,10 @@ local function new_sheet(name, evicts, bitmap)
 end
 
 function Sheet:reset()
-    if (self.tex ~= nil) then self.tex:Release(); end
+    if (self.tex ~= nil) then
+        mem.release(self.tex);
+        self.tex:Release();
+    end
     self.tex = nil;
     self.key_cell  = {}; -- key -> cell (0-based), or false if it can't be decoded
     self.cell_key  = {}; -- cell -> key

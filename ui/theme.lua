@@ -15,6 +15,7 @@
 local atlas = require('ui.atlas');
 local gen   = require('ui.gen');
 local image = require('ui.image');
+local mem   = require('diag.mem');
 
 local theme = {};
 
@@ -287,6 +288,7 @@ function theme.apply(name, scale)
     end
 
     built.sheet_w, built.sheet_h = built.sheet.w, built.sheet.h;
+    mem.texture(tex, 'theme atlas', built.sheet_w * built.sheet_h * 4);
     built.sheet = nil; -- cpu copy no longer needed
     built.texture = tex;
     theme.release();
@@ -296,6 +298,7 @@ end
 
 function theme.release()
     if (current ~= nil and current.texture ~= nil) then
+        mem.release(current.texture);
         current.texture:Release();
     end
     current = nil;

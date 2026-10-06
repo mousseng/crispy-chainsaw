@@ -659,6 +659,64 @@ end
 local saved_rs, saved_tss = {}, {};
 local hooks = {};
 
+-- the device's methods, called straight through the vtable. ashita's wrappers
+-- (dev:SetRenderState and co.) read self.lpVtbl.X on every call, and outside a
+-- trace each of those reads boxes a new pointer; its getters also ffi.new an
+-- out-param per call. with ~70 state calls a frame that was most of our
+-- per-frame garbage, so the function pointers are read once per device.
+local vt_dev, vt = nil, nil;
+-- out-params, kept for good. viewport is a struct, not a [1] array: its fields
+-- read straight off it, where box[0] would make a reference cdata first.
+local box_u32, box_tex, viewport;
+
+local function vtable(dev)
+    if (vt_dev ~= dev) then
+        if (box_u32 == nil) then -- (made here: the d3d8 types aren't declared at load)
+            box_u32 = ffi.new('DWORD[1]');
+            box_tex = ffi.new('IDirect3DBaseTexture8*[1]');
+            viewport = ffi.new('D3DVIEWPORT8');
+        end
+        local v = dev.lpVtbl;
+        vt = {
+            GetRenderState = v.GetRenderState, SetRenderState = v.SetRenderState,
+            GetTextureStageState = v.GetTextureStageState, SetTextureStageState = v.SetTextureStageState,
+            GetVertexShader = v.GetVertexShader, SetVertexShader = v.SetVertexShader,
+            GetPixelShader = v.GetPixelShader, SetPixelShader = v.SetPixelShader,
+            GetTexture = v.GetTexture, SetTexture = v.SetTexture,
+            DrawIndexedPrimitiveUP = v.DrawIndexedPrimitiveUP,
+            GetViewport = v.GetViewport,
+        };
+        vt_dev = dev;
+    end
+    return vt;
+end
+
+---a getter's result, from its HRESULT and box_u32 (passed as its out-param).
+local function got_u32(res)
+    if (res ~= C.S_OK) then return nil; end
+    return box_u32[0];
+end
+
+-- textures cast to the base type SetTexture takes, kept so the casts aren't
+-- remade every frame. weak, like tex_dims.
+local as_base = setmetatable({}, { __mode = 'k' });
+
+local function base_tex(tex)
+    local b = as_base[tex];
+    if (b == nil) then
+        b = ffi.cast('IDirect3DBaseTexture8*', tex);
+        as_base[tex] = b;
+    end
+    return b;
+end
+
+---@return number|nil w, number|nil h the current viewport
+function render.viewport()
+    local dev = require('d3d8').get_device();
+    if (vtable(dev).GetViewport(dev, viewport) ~= C.S_OK) then return nil, nil; end
+    return viewport.Width, viewport.Height;
+end
+
 ---fn() runs at the start of every end_frame, before anything is submitted
 ---(e.g. to write textures the frame's quads use).
 function render.before_submit(fn)
@@ -682,31 +740,31 @@ function render.end_frame()
     if (RS == nil) then build_states(); end
 
     -- capture
+    local vt = vtable(dev);
     for i, s in ipairs(RS) do
-        local _, v = dev:GetRenderState(s[1]);
-        saved_rs[i] = v;
+        saved_rs[i] = got_u32(vt.GetRenderState(dev, s[1], box_u32));
     end
     for i, s in ipairs(TSS) do
-        local _, v = dev:GetTextureStageState(s[1], s[2]);
-        saved_tss[i] = v;
+        saved_tss[i] = got_u32(vt.GetTextureStageState(dev, s[1], s[2], box_u32));
     end
-    local _, old_vs  = dev:GetVertexShader();
-    local _, old_ps  = dev:GetPixelShader();
-    local _, old_tex = dev:GetTexture(0); -- AddRef'd; released below
+    local old_vs = got_u32(vt.GetVertexShader(dev, box_u32));
+    local old_ps = got_u32(vt.GetPixelShader(dev, box_u32));
+    local old_tex = nil; -- AddRef'd; released below
+    if (vt.GetTexture(dev, 0, box_tex) == C.S_OK and box_tex[0] ~= nil) then old_tex = box_tex[0]; end
 
     -- set
-    for _, s in ipairs(RS) do dev:SetRenderState(s[1], s[2]); end
-    for _, s in ipairs(TSS) do dev:SetTextureStageState(s[1], s[2], s[3]); end
-    dev:SetVertexShader(FVF);
-    dev:SetPixelShader(0);
+    for _, s in ipairs(RS) do vt.SetRenderState(dev, s[1], s[2]); end
+    for _, s in ipairs(TSS) do vt.SetTextureStageState(dev, s[1], s[2], s[3]); end
+    vt.SetVertexShader(dev, FVF);
+    vt.SetPixelShader(dev, 0);
 
     -- draw
     for i = 1, ncmds do
         local first, left = cmd_first[i], cmd_count[i];
-        dev:SetTexture(0, ffi.cast('IDirect3DBaseTexture8*', cmd_tex[i]));
+        vt.SetTexture(dev, 0, base_tex(cmd_tex[i]));
         while (left > 0) do -- 16-bit indices address MAX_PER_CALL quads at a time
             local count = min(left, MAX_PER_CALL);
-            dev:DrawIndexedPrimitiveUP(C.D3DPT_TRIANGLELIST, 0, count * 4, count * 2,
+            vt.DrawIndexedPrimitiveUP(dev, C.D3DPT_TRIANGLELIST, 0, count * 4, count * 2,
                 indices, C.D3DFMT_INDEX16, verts + first * 4, VERTEX_SIZE);
             first, left = first + count, left - count;
         end
@@ -714,14 +772,14 @@ function render.end_frame()
 
     -- restore
     for i, s in ipairs(RS) do
-        if (saved_rs[i] ~= nil) then dev:SetRenderState(s[1], saved_rs[i]); end
+        if (saved_rs[i] ~= nil) then vt.SetRenderState(dev, s[1], saved_rs[i]); end
     end
     for i, s in ipairs(TSS) do
-        if (saved_tss[i] ~= nil) then dev:SetTextureStageState(s[1], s[2], saved_tss[i]); end
+        if (saved_tss[i] ~= nil) then vt.SetTextureStageState(dev, s[1], s[2], saved_tss[i]); end
     end
-    if (old_vs ~= nil) then dev:SetVertexShader(old_vs); end
-    if (old_ps ~= nil) then dev:SetPixelShader(old_ps); end
-    dev:SetTexture(0, old_tex);
+    if (old_vs ~= nil) then vt.SetVertexShader(dev, old_vs); end
+    if (old_ps ~= nil) then vt.SetPixelShader(dev, old_ps); end
+    vt.SetTexture(dev, 0, old_tex);
     if (old_tex ~= nil) then old_tex:Release(); end
 
     -- don't keep last frame's textures (e.g. stale text) alive.

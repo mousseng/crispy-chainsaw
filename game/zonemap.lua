@@ -15,6 +15,7 @@ local bit  = require('bit');
 local ffi   = require('ffi');
 local d3d8  = require('d3d8');
 local atlas = require('ui.atlas');
+local diag  = require('diag.mem');
 
 local C = ffi.C;
 local mem = ashita.memory;
@@ -324,17 +325,19 @@ function zonemap.texture(m)
     if (img.width <= 0 or img.height <= 0 or img.width > 4096 or img.height > 4096) then
         return nil, 'bad image size in ' .. path;
     end
-    local tex, err;
+    local tex, err, bytes;
     if (DXT[img.type] ~= nil) then
         tex, err = load_dxt(buf, size, img, DXT[img.type]);
+        bytes = math.ceil(img.width / 4) * math.ceil(img.height / 4) * (DXT[img.type] == 'D3DFMT_DXT1' and 8 or 16);
     elseif (img.type == BITMAP) then
         tex, err = load_bitmap(buf, size, img);
+        bytes = img.width * img.height * 4;
     else
         return nil, ('unsupported image type 0x%08X in %s'):format(img.type, path);
     end
     if (tex == nil) then return nil, err; end
     trace('texture: done');
-    return d3d8.gc_safe_release(tex);
+    return diag.texture(d3d8.gc_safe_release(tex), 'zone maps', bytes);
 end
 
 return zonemap;
