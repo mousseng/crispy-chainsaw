@@ -27,7 +27,6 @@ return {
         tp_full       = 0xFF9CD2FF,
         tp_over       = 0xFFF07AC8, -- the second layer, 1000..3000: a scrolling gradient of these two
         tp_over_alt   = 0xFF9A6AF0,
-        pet           = 0xFFC08FE0,
         exp           = 0xFFB89AF0,
 
         target        = 0xFFFFFFFF,

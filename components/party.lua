@@ -526,7 +526,7 @@ function party.draw(r, ctx, x, y)
             m.pet_text = m.pet_text or text.new({ size = PET_FONT, bold = false });
             m.pet_text:set(m.pet_name);
             r.push_clip(hx, py - 2 * s, px - hx, PET_H * s);
-            m.pet_text:draw(px, py, c('pet'), 'right');
+            m.pet_text:draw(px, py, c('text'), 'right');
             r.pop_clip();
         end
     end
