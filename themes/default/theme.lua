@@ -106,8 +106,8 @@ return {
         -- job/level labels (e.g. WHM75/SCH37): only the letters job
         -- abbreviations use.
         job    = { size = 10, chars = 'ABCDEFGHIKLMNOPRSTUW0123456789/' },
-        -- exp bar: "12,345 / 21,000" and "8,400/hr".
-        exp    = { size = 12, chars = '0123456789,./hr ' },
+        -- exp bar: "8,655 tnl" and "8,400/hr".
+        exp    = { size = 12, chars = '0123456789,./hrtnl ' },
         -- inventory: stack counts on icons, and gil / space used.
         count  = { size = 10, chars = '0123456789' },
         inv    = { size = 12, chars = '0123456789,/ gil' },

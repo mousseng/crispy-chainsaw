@@ -1,6 +1,6 @@
 --[[
 * exp bar: a tab docked to the top or bottom edge of the screen, filled by
-* progress to the next level, showing current / needed exp and exp per hour.
+* progress to the next level, showing exp to next level (tnl) and exp per hour.
 *
 * the tab's long side faces whichever of the top or bottom edge it's nearer,
 * decided each frame from where it's placed, so it flips as it's dragged.
@@ -20,7 +20,7 @@ local POLL     = 0.25; -- seconds between reads of exp and rate updates
 local WINDOW   = 3600; -- rate is measured over the last hour...
 local MIN_SPAN = 60;   -- ...but over at least a minute, so the first kill doesn't read as a huge rate
 local GAP      = 8;    -- from the bar's centre to each piece of text, logical px
-local MIN_W    = 280;  -- smallest width '55,999 / 56,000' fits half of, logical px
+local MIN_W    = 280;  -- smallest width '55,999 tnl' and '99,999/hr' fit half of, logical px
 local HOLD     = 1.5;  -- seconds a gain (or loss) shows before the fill catches up
 
 -- 0x02D (battle message) ids that report exp or limit points gained, as param 1.
@@ -29,8 +29,8 @@ local EXP_MESSAGES = { [8] = true, [105] = true, [253] = true, [371] = true, [37
 local exp = {}; -- settings defaults: components/list.lua
 
 local cur, need, frac = -1, -1, 0;
-local ratio_str, rate, rate_str = '', -1, '';
-local ratio_num, rate_num = nil, nil;
+local tnl_str, rate, rate_str = '', -1, '';
+local tnl_num, rate_num = nil, nil;
 local since_poll = POLL;
 
 -- the fill's trail. fresh: jump it to frac rather than animate, after a level
@@ -69,7 +69,7 @@ local function poll()
         if (n ~= need) then fresh = true; end
         cur, need = c, n;
         frac = n > 0 and math.min(c / n, 1) or 0;
-        ratio_str = ('%s / %s'):format(commas(c), commas(n));
+        tnl_str = commas(math.max(n - c, 0)) .. ' tnl';
     end
 
     local now = os.clock();
@@ -163,11 +163,11 @@ function exp.draw(r, ctx, x, y)
     fill(r, x, y, w, h, l, rr, lo, c('exp'), flip);
     r.nineslice('tab_border', x, y, w, h, c('panel_border'), flip);
 
-    ratio_num = ratio_num or text.number('exp');
+    tnl_num = tnl_num or text.number('exp');
     rate_num = rate_num or text.number('exp');
-    ratio_num:set(ratio_str);
+    tnl_num:set(tnl_str);
     rate_num:set(rate_str);
-    local _, th = ratio_num:size();
+    local _, th = tnl_num:size();
     local ty = y + (h - th) * 0.5;
 
     -- either side of the centre, split by a dot. clipped to the tab's
@@ -176,7 +176,7 @@ function exp.draw(r, ctx, x, y)
     r.sprite('dot', cx, cy, 0xFF000000, 2.5); -- outline, like the glyphs'
     r.sprite('dot', cx, cy, c('text_dim'));
     r.push_clip(x + l, y, w - l - rr, h);
-    ratio_num:draw(cx - GAP * s, ty, c('text'), 'right');
+    tnl_num:draw(cx - GAP * s, ty, c('text'), 'right');
     rate_num:draw(cx + GAP * s, ty, c('text'));
     r.pop_clip();
 
