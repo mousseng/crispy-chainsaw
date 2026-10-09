@@ -43,6 +43,7 @@ every component supports these commands:
 and some have their own:
 
 - `/cc exp width [n]`
+- `/cc exp reset`
 - `/cc party status [n]` - how many lines of buffs to show (0 hides them)
 - `/cc target demo` - fakes a skillchain on your target (mostly for testing)
 - `/cc treas demo` - toggle a fake pool to try the panel out solo

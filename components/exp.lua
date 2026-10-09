@@ -110,8 +110,16 @@ end
 
 --[[ commands ]]--
 
----/cc exp width [n]
+---/cc exp width [n] | reset
 function exp.command(ctx, args)
+    if (args[1] == 'reset' and args[2] == nil) then
+        -- forget every gain and restart the clock, as if the bar had just loaded
+        g_time, g_amount = {}, {};
+        head, tail, sum = 1, 0, 0;
+        started = os.clock();
+        since_poll = POLL; -- show it next frame
+        return true, 'exp: tracking reset';
+    end
     if (args[1] ~= 'width') then return false; end
     local n = tonumber(args[2]);
     if (args[2] ~= nil) then
