@@ -24,9 +24,10 @@ if you are a keyboard/mouse player:
 usage
 -------------------------------------------------------------------------------
 
-there are 6 components currently:
+there are 8 components currently:
 
-- `party` shows the party (no alliance yet)
+- `party` shows the party
+- `alliance1` / `alliance2` are condensed views for parties 2 and 3
 - `target` shows your target & subtarget
 - `treas` shows the lootpool when there are items in it
 - `exp` is your exp bar (docks nicely to top and bottom)
@@ -78,6 +79,5 @@ and some have their own:
 
 TODO
 -------------------------------------------------------------------------------
-1. alliance panels (preferably condensed raid frames, like ffxiv)
-2. pet panel (i don't have one of those to test with yet)
+1. pet panel (i don't have one of those to test with yet)
 

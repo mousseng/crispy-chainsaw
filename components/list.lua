@@ -13,6 +13,9 @@ return {
     { name = 'map',    defaults = { enabled = false, anchor = 'center', x = 0, y = 0, size = 512, zoom = 1, marker = 1, opacity = 0.6, opacity_moving = 0.3 } },
     { name = 'exp',    defaults = { enabled = true, anchor = 'top', x = 0, y = 0, width = 640 } },
     { name = 'party',  defaults = { enabled = true, anchor = 'left', x = 20, y = -120, grow_y = 'down', hide_solo = false, status_lines = 2 } },
+    -- the alliance's other two parties, condensed (components/alliance.lua)
+    { name = 'alliance1', defaults = { enabled = true, anchor = 'left', x = 300, y = -120, grow_y = 'down' } },
+    { name = 'alliance2', defaults = { enabled = true, anchor = 'left', x = 300, y = 50, grow_y = 'down' } },
     { name = 'target', defaults = { enabled = true, anchor = 'top', x = 0, y = 80, grow_y = 'down' } },
     { name = 'treas',  defaults = { enabled = true, anchor = 'right', x = -20, y = 200, grow_y = 'down' } },
     { name = 'inv',    defaults = { enabled = false, anchor = 'right', x = -20, y = 0, columns = 10, rows = 8, unified = true } },
