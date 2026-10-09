@@ -24,7 +24,7 @@ local FLAG_SYNC = 0x100; -- member flag mask: level sync
 -- layout in logical pixels: the name on top, a thin hp bar under it.
 local PAD, ROW_H, ROW_GAP = 6, 22, 2;
 local BAR_W, BAR_H, BAR_Y = 110, 5, 15;
-local NAME_FONT = 11;
+local NAME_FONT, ZONE_FONT, ZONE_Y = 11, 9, 10;
 local TARGET_OUT = 2; -- how far the target highlight extends past the row's inset
 local MARK_Y, MARK_GAP = 6, 3; -- the marks' centre line, and the gap after each
 local SPIN_PERIOD, SPIN_TAIL = 2.5, 0.3; -- as the party list's
@@ -53,6 +53,14 @@ local function party_cursor()
     return ashita.memory.read_uint8(ptr + 0x50);
 end
 
+---zone name for out-of-zone members; looked up only when the zone changes.
+local function set_zone(m, zone)
+    if (m.zone_id == zone) then return; end
+    m.zone_id = zone;
+    local name = zone > 0 and AshitaCore:GetResourceManager():GetString('zones.names', zone) or nil;
+    m.zone_str = (name ~= nil and name ~= '') and name or '';
+end
+
 ---draws a mark sprite with its left edge at x, centred on cy. returns the x
 ---the next mark (or the name) starts at.
 local function mark(r, name, x, cy, color, s)
@@ -78,6 +86,7 @@ function alliance.new(n)
             slot = first + k, name = '', in_zone = true, target_index = 0,
             hp = 0, hpp = 0, leader = false, alliance_leader = false, sync = false,
             sid = 0, fresh = true, trail = widgets.trail_new(), name_text = nil, name_x = 0,
+            zone_id = -1, zone_str = '', zone_text = nil,
         };
     end
     -- the active members' records, in slot order; count of them.
@@ -99,7 +108,9 @@ function alliance.new(n)
                 rows[count] = m;
                 local sid = p:GetMemberServerId(i);
                 local was_in_zone = m.in_zone;
-                m.in_zone = p:GetMemberZone(i) == my_zone;
+                local zone = p:GetMemberZone(i);
+                m.in_zone = zone == my_zone;
+                set_zone(m, zone);
                 if (sid ~= m.sid or not was_in_zone) then
                     m.sid, m.fresh = sid, true;
                 end
@@ -191,14 +202,16 @@ function alliance.new(n)
             end
             m.name_x = nx;
 
-            -- out of zone: the client has no hp for them, so no bar; the name dims.
+            -- out of zone: the client has no hp for them, so the zone name
+            -- (drawn in the text pass) takes the bar's place and the name dims.
             if (m.in_zone) then
                 bar(r, hx, ry + BAR_Y * s, BAR_W * s, BAR_H * s, m.hpp, hp_color(m.hpp),
                     (m.hpp <= 0.25 and m.hp > 0) and c('hp_crit') or nil, m.trail.shown);
             end
         end
 
-        -- names last (one gdifonts texture each), clipped to the bar's width.
+        -- names and zone names last (one gdifonts texture each), clipped to
+        -- the bar's width.
         for j = 1, count do
             local m = rows[j];
             local ry = y + (PAD + (j - 1) * (ROW_H + ROW_GAP)) * s;
@@ -213,6 +226,14 @@ function alliance.new(n)
             r.push_clip(m.name_x, ry - 2 * s, hx + BAR_W * s - m.name_x, ROW_H * s);
             m.name_text:draw(m.name_x, ry - 1 * s, color);
             r.pop_clip();
+
+            if (not m.in_zone and m.zone_str ~= '') then
+                m.zone_text = m.zone_text or text.new({ size = ZONE_FONT, bold = false });
+                m.zone_text:set(m.zone_str);
+                r.push_clip(hx, ry, BAR_W * s, ROW_H * s);
+                m.zone_text:draw(hx, ry + ZONE_Y * s, c('text_dim'));
+                r.pop_clip();
+            end
         end
 
         return w, h;
