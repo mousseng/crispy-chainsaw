@@ -21,12 +21,14 @@ local band = bit.band;
 local POLL = 0.1;        -- seconds between party memory reads
 local FLAG_SYNC = 0x100; -- member flag mask: level sync
 
--- layout in logical pixels: the name on top, a thin hp bar under it.
-local PAD, ROW_H, ROW_GAP = 6, 22, 2;
-local BAR_W, BAR_H, BAR_Y = 110, 5, 15;
-local NAME_FONT, ZONE_FONT, ZONE_Y = 11, 9, 10;
+-- layout in logical pixels: the name on top, an hp bar under it. the name,
+-- zone name and bar are the party list's sizes, just without its mp / tp
+-- columns and numbers.
+local PAD, ROW_H, ROW_GAP = 6, 28, 2;
+local BAR_W, BAR_H, BAR_Y = 104, 7, 17;
+local ZONE_FONT, ZONE_Y = 12, 13;
 local TARGET_OUT = 2; -- how far the target highlight extends past the row's inset
-local MARK_Y, MARK_GAP = 6, 3; -- the marks' centre line, and the gap after each
+local MARK_Y, MARK_GAP = 7, 3; -- the marks' centre line, and the gap after each
 local SPIN_PERIOD, SPIN_TAIL = 2.5, 0.3; -- as the party list's
 
 local trail_reset, trail_step = widgets.trail_reset, widgets.trail_step;
@@ -215,7 +217,7 @@ function alliance.new(n)
         for j = 1, count do
             local m = rows[j];
             local ry = y + (PAD + (j - 1) * (ROW_H + ROW_GAP)) * s;
-            m.name_text = m.name_text or text.new({ size = NAME_FONT });
+            m.name_text = m.name_text or text.new({});
             m.name_text:set(m.name);
             local color = c('text');
             if (not m.in_zone) then
@@ -224,13 +226,13 @@ function alliance.new(n)
                 color = c('hp_crit');
             end
             r.push_clip(m.name_x, ry - 2 * s, hx + BAR_W * s - m.name_x, ROW_H * s);
-            m.name_text:draw(m.name_x, ry - 1 * s, color);
+            m.name_text:draw(m.name_x, ry, color);
             r.pop_clip();
 
             if (not m.in_zone and m.zone_str ~= '') then
                 m.zone_text = m.zone_text or text.new({ size = ZONE_FONT, bold = false });
                 m.zone_text:set(m.zone_str);
-                r.push_clip(hx, ry, BAR_W * s, ROW_H * s);
+                r.push_clip(hx, ry, BAR_W * s, (ROW_H + ROW_GAP) * s);
                 m.zone_text:draw(hx, ry + ZONE_Y * s, c('text_dim'));
                 r.pop_clip();
             end
