@@ -322,12 +322,11 @@ end
 --[[ commands ]]--
 
 ---/cc target demo - a made-up skillchain on the current target; again
----for another kind.
+---for the next kind, round every skillchain and a couple of openers.
 function target.command(ctx, args)
     if (args[1] == 'demo') then
         if (main.index == 0) then return true, 'target something first'; end
-        sc.demo(main.sid);
-        return true, 'target: added a demo chain';
+        return true, 'target: demo chain ' .. sc.demo(main.sid);
     end
     return false;
 end

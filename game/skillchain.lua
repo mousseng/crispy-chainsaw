@@ -217,22 +217,30 @@ function skillchain.tick(t)
     end
 end
 
--- made-up resonances for demo(), in turn: two elements, four (both chained),
--- an opener's two properties, then three (Disaster's: too wide in full, so
--- shortened)
+-- made-up resonances for demo(), in turn: every skillchain (made by one, so
+-- burstable), level 1 up to 4, then two openers: two properties, and three
+-- (Disaster's: too wide in full, so shortened)
 local DEMOS = {
-    { 'Fusion', chained = true }, { 'Light', chained = true }, { 'Fragmentation', 'Scission' },
-    { 'Transfixion', 'Scission', 'Gravitation' },
+    { 'Transfixion', chained = true }, { 'Compression', chained = true }, { 'Liquefaction', chained = true },
+    { 'Scission', chained = true }, { 'Reverberation', chained = true }, { 'Detonation', chained = true },
+    { 'Induration', chained = true }, { 'Impaction', chained = true },
+    { 'Gravitation', chained = true }, { 'Distortion', chained = true }, { 'Fusion', chained = true },
+    { 'Fragmentation', chained = true },
+    { 'Light', chained = true }, { 'Darkness', chained = true },
+    { 'Radiance', chained = true }, { 'Umbra', chained = true },
+    { 'Fragmentation', 'Scission' }, { 'Transfixion', 'Scission', 'Gravitation' },
 };
 local next_demo = 1;
 
 ---a made-up chain on the monster with server id `id`, to see it without a
----party. each call shows the next of a few resonances.
+---party. each call shows the next of the resonances above; returns a
+---description of the one shown.
 function skillchain.demo(id)
     local t = skillchain.now();
-    local demo = DEMOS[next_demo];
+    local i, demo = next_demo, DEMOS[next_demo];
     skillchain.mobs[id] = { resonance = demo, chained = demo.chained == true, since = t, opens = t + 2, closes = t + 2 + BASE_WINDOW };
     next_demo = next_demo % #DEMOS + 1;
+    return ('%d/%d %s%s'):format(i, #DEMOS, table.concat(demo, ', '), demo.chained and '' or ' (opener)');
 end
 
 return skillchain;
