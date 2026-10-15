@@ -500,6 +500,14 @@ function render.slot_edges(name)
     return sl[1] * k, sl[2] * k, sl[3] * k, sl[4] * k;
 end
 
+---how far an outset slot (shadow, glow) reaches beyond the rect it's drawn
+---for, in screen pixels; 0 for others.
+function render.slot_outset(name)
+    local meta = theme.slot(name);
+    if (meta == nil) then return 0; end
+    return round((meta.outset or 0) * theme.active().scale / meta.density);
+end
+
 ---a slot's natural size in screen pixels (its texture at the current scale).
 function render.slot_size(name)
     local meta = theme.slot(name);

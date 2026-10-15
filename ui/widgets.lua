@@ -172,6 +172,67 @@ function widgets.spinner(r, name, x, y, w, h, color, pos, len)
     tail_edge(2 * w + side - per, 0, y1 - eb, -1, x, x + el, 0);
 end
 
+-- the stretch of outline_gradient being drawn: its colours, sp_c0 at outline
+-- distance sp_t0 to sp_c1 at sp_t1 (the rest as for the spinner)
+local sp_c0, sp_c1 = 0, 0;
+
+---the part of the stretch on one edge (arguments as for tail_edge). the
+---gradient's ends are put where the stretch's ends would be along the edge's
+---line, even off the edge, so a stretch round a corner stays one gradient.
+local function grad_edge(e0, e1, p0, dir, q0, q1, horiz)
+    local d0, d1 = max(sp_t0, e0), min(sp_t1, e1);
+    if (d1 <= d0) then return; end
+    local pa, pb = p0 + (d0 - e0) * dir, p0 + (d1 - e0) * dir;
+    local g0, g1 = p0 + (sp_t0 - e0) * dir, p0 + (sp_t1 - e0) * dir;
+    local c0, c1 = sp_c0, sp_c1;
+    if (dir < 0) then
+        pa, pb, g0, g1, c0, c1 = pb, pa, g1, g0, c1, c0;
+    end
+    local v = 1 - horiz;
+    sp_r.push_clip(pa * horiz + q0 * v, q0 * horiz + pa * v, (pb - pa) * horiz + (q1 - q0) * v, (q1 - q0) * horiz + (pb - pa) * v);
+    if (horiz == 1) then
+        sp_r.nineslice_hgrad(sp_name, sp_x, sp_y, sp_w, sp_h, c0, c1, g0, g1);
+    else
+        sp_r.nineslice_vgrad(sp_name, sp_x, sp_y, sp_w, sp_h, c0, c1, g0, g1);
+    end
+    sp_r.pop_clip();
+end
+
+---a nineslice slot in a gradient running round its outline through colors[1]
+---to colors[n] and back to colors[1], spaced evenly, clockwise from the top
+---left, turned clockwise by pos (0..1 of a lap). edges split as for the
+---spinner. outset slots (glows) work too: the outline is the drawn one, past
+---the rect.
+function widgets.outline_gradient(r, name, x, y, w, h, colors, n, pos)
+    if (n <= 1) then
+        r.nineslice(name, x, y, w, h, colors[1]);
+        return;
+    end
+    local el, et, er, eb = r.slot_edges(name);
+    local x1, y1 = floor(x + w + 0.5), floor(y + h + 0.5);
+    x, y = floor(x + 0.5), floor(y + 0.5);
+    sp_r, sp_name = r, name;
+    sp_x, sp_y, sp_w, sp_h = x, y, x1 - x, y1 - y;
+    local o = r.slot_outset(name);
+    x, y, x1, y1 = x - o, y - o, x1 + o, y1 + o;
+    w, h = x1 - x, y1 - y;
+    local side = max(h - et - eb, 0);
+    local per = 2 * w + 2 * side;
+    local turn = (pos or 0) % 1;
+    for k = 1, n do
+        sp_c0, sp_c1 = colors[k], colors[k % n + 1];
+        -- turned, a stretch can run past the end of the outline: draw it a
+        -- lap earlier too, for the part that wraps onto the start
+        for lap = 0, 1 do
+            sp_t0, sp_t1 = ((k - 1) / n + turn - lap) * per, (k / n + turn - lap) * per;
+            grad_edge(0, w, x, 1, y, y + et, 1);                       -- top
+            grad_edge(w, w + side, y + et, 1, x1 - er, x1, 0);         -- right
+            grad_edge(w + side, 2 * w + side, x1, -1, y1 - eb, y1, 1); -- bottom
+            grad_edge(2 * w + side, per, y1 - eb, -1, x, x + el, 0);   -- left
+        end
+    end
+end
+
 ---@param frac number hp fraction, 0..1
 function widgets.hp_color(frac)
     if (frac < 0.25) then return theme.color('hp_crit'); end

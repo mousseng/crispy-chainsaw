@@ -13,7 +13,9 @@
 * (waiting, then open) with a bar. a resonance made by a skillchain (one that
 * can be magic burst), rather than an opener's, is led by "Chain!". it goes
 * once the window closes. names too wide for the row (a three-property
-* opener) are shortened.
+* opener) are shortened. while the resonance is a skillchain's, for its whole
+* window (waiting and open), the panel's border and glow run round through its
+* elements' colours, turning, in place of the lock-on glow.
 * `/cc target demo` puts a made-up chain on the current target.
 --]]
 
@@ -47,6 +49,7 @@ local clock = 0;
 local chain_labels, chain_shorts = {}, {}; -- resonance name -> text, full and short
 local chain_time, chain_wait, chain_go, chain_mark = nil, nil, nil, nil;
 local band_colors = {};
+local border_colors = {};
 
 -- the main target's hp bar trail, and the target it belongs to: a new target
 -- (or the same one again after a break) starts at its hp, not from the last one's.
@@ -142,6 +145,7 @@ local BAR_H, BAR_Y, NUM_Y, MAIN_H = 8, 17, 24, 38;
 local SUB_H, SUB_GAP, SUB_BAR_W, SUB_BAR_H, MARK_W = 18, 6, 64, 5, 14;
 -- the skillchain: resonance names and the countdown, then the window's bar
 local CHAIN_H, CHAIN_BAR_Y, CHAIN_BAR_H, CHAIN_GAP, CHAIN_TIME_W = 22, 17, 4, 8, 70;
+local CHAIN_SPIN = 1; -- seconds per lap of the border's gradient
 -- resonance names shortened, for when the full ones don't fit. Light, Darkness,
 -- Radiance and Umbra always stand alone, so keep their names.
 local CHAIN_SHORT = {
@@ -242,9 +246,26 @@ function target.draw(r, ctx, x, y)
 
     r.nineslice('panel_shadow', x, y, w, h, c('shadow'));
     r.nineslice('panel', x, y, w, h, c('panel_bg'));
-    r.nineslice('panel_border', x, y, w, h, c('panel_border'));
-    if (locked) then
-        r.nineslice('panel_glow', x, y, w, h, c('target_lock'));
+    if (chain ~= nil and chain.chained) then
+        local n = 0;
+        for _, name in ipairs(chain.resonance) do
+            local els = sc.ELEMENTS[name];
+            for i = 1, els and #els or 0 do
+                n = n + 1;
+                border_colors[n] = c(widgets.ELEMENT[els[i]]);
+            end
+        end
+        if (n == 0) then
+            r.nineslice('panel_border', x, y, w, h, c('panel_border'));
+            if (locked) then r.nineslice('panel_glow', x, y, w, h, c('target_lock')); end
+        else
+            local pos = clock % CHAIN_SPIN / CHAIN_SPIN;
+            widgets.outline_gradient(r, 'panel_border', x, y, w, h, border_colors, n, pos);
+            widgets.outline_gradient(r, 'panel_glow', x, y, w, h, border_colors, n, pos);
+        end
+    else
+        r.nineslice('panel_border', x, y, w, h, c('panel_border'));
+        if (locked) then r.nineslice('panel_glow', x, y, w, h, c('target_lock')); end
     end
 
     local lx, rx = x + PAD * s, x + w - PAD * s;
