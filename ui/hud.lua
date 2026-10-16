@@ -71,6 +71,7 @@
 
 local theme = require('ui.theme');
 local mem   = require('diag.mem');
+local imgui = require('imgui');
 
 local hud = {};
 
@@ -549,6 +550,9 @@ function hud.mouse(e)
         end
         return;
     end
+
+    -- imgui draws over us; if it wants the mouse, the click is its, not ours
+    if (e.blocked or imgui.GetIO().WantCaptureMouse) then return; end
 
     local c = hit(e.x, e.y);
     if (c == nil) then return; end
