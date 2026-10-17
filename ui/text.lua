@@ -38,12 +38,32 @@ local function active_scale()
     return a and a.scale or 1;
 end
 
+-- font files loaded so far: path -> family name, or false if it failed.
+local loaded = {};
+
+---loads a theme's font files (process-private, not installed) and returns the
+---family name of the first, or nil if none loaded. load a file per style: a
+---family without a bold file can't draw bold.
+local function font_file_family(files)
+    local family;
+    for _, path in ipairs(files or {}) do
+        if (loaded[path] == nil) then
+            loaded[path] = gdi:add_font_file(path) or false;
+            if (not loaded[path]) then
+                print(('[crispy-chainsaw] could not load font %s'):format(path));
+            end
+        end
+        family = family or loaded[path] or nil;
+    end
+    return family;
+end
+
 ---maps a theme font + overrides onto gdifonts settings.
 local function style(opts, font, scale)
     local bold = opts.bold;
     if (bold == nil) then bold = font.bold; end
     return {
-        font_family   = opts.family or font.family or 'Arial',
+        font_family   = opts.family or font_file_family(font.file) or font.family or 'Arial',
         font_height   = math.floor((opts.size or font.size or 12) * scale + 0.5),
         font_flags    = bold and gdi.FontFlags.Bold or gdi.FontFlags.None,
         outline_width = (opts.outline or font.outline or 2) * scale,
@@ -387,7 +407,7 @@ end
 
 function text.shutdown()
     objects = setmetatable({}, { __mode = 'k' });
-    baselines, depths, probe = {}, {}, nil;
+    baselines, depths, probe, loaded = {}, {}, nil, {};
     gdi:destroy_interface();
 end
 

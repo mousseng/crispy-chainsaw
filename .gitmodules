@@ -1,3 +1,3 @@
 [submodule "gdifonts"]
 	path = gdifonts
-	url = https://github.com/thornyffxi/gdifonts
+	url = git@github.com:mousseng/gdifonts.git

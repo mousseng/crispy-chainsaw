@@ -7,7 +7,7 @@
 * for slots by name and never see where the art came from.
 *
 * themes inherit from `base` (default: 'default'). palette and font merge key
-* by key; slots replace whole (a file slot does not inherit generator params).
+* by key (font.file, one path or a list, is resolved beside its theme.lua); slots replace whole (a file slot does not inherit generator params).
 * if a slot fails to build (missing file, bad spec) the base theme's version
 * of that slot is used instead.
 --]]
@@ -211,6 +211,12 @@ function theme.build(name, scale)
             end
         end
         for k, v in pairs(def.font or {}) do font[k] = v; end
+        -- font files are relative to the theme that names them.
+        if (def.font and def.font.file) then
+            local files = type(def.font.file) == 'table' and def.font.file or { def.font.file };
+            font.file = {};
+            for i, f in ipairs(files) do font.file[i] = ('%s/%s'):format(def.dir, f); end
+        end
         for set, cfg in pairs(def.glyphs or {}) do
             glyphs[set] = glyphs[set] or {};
             for k, v in pairs(cfg) do glyphs[set][k] = v; end

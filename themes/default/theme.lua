@@ -90,8 +90,12 @@ return {
     },
 
     -- mapped onto gdifonts settings by ui/text.lua. sizes are logical pixels.
+    -- `file` loads fonts from beside this theme.lua instead of needing them
+    -- installed, eg file = { 'fonts/Inter-Regular.ttf', 'fonts/Inter-Bold.ttf' };
+    -- the first file's family is used and `family` is the fallback.
     font = {
         family  = 'Arial',
+        --file = { "fonts/EBGaramond-VariableFont_wght.ttf", "fonts/EBGaramond-Italic-VariableFont_wght.ttf" },
         size    = 13,
         bold    = true,
         outline = 2,
