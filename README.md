@@ -24,12 +24,13 @@ if you are a keyboard/mouse player:
 usage
 -------------------------------------------------------------------------------
 
-there are 8 components currently:
+there are 9 components currently:
 
 - `party` shows the party
 - `alliance1` / `alliance2` are condensed views for parties 2 and 3
 - `target` shows your target & subtarget
 - `treas` shows the lootpool when there are items in it
+- `skillchain` tracks your target's current skillchain state
 - `exp` is your exp bar (docks nicely to top and bottom)
 - `inv` is your inventory (off by default)
 - `map` is a shitty map overlay (off by default, drag & zoom)
@@ -47,6 +48,7 @@ and some have their own:
 - `/cc exp reset`
 - `/cc party status [n]` - how many lines of buffs to show (0 hides them)
 - `/cc target demo` - fakes a skillchain on your target (mostly for testing)
+- `/cc skillchain demo` - plays a made-up chain on your target
 - `/cc treas demo` - toggle a fake pool to try the panel out solo
 - `/cc treas clock` - what's known about the server's pool clock
 - `/cc map size|zoom|marker [n]` - map size (128-2048), zoom (1-8), marker scale (0.5-4)

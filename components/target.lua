@@ -132,10 +132,6 @@ function target.update(ctx, dt)
     chain = (m ~= nil and clock <= m.closes) and m or nil;
 end
 
-function target.packet_in(ctx, e)
-    sc.packet_in(e);
-end
-
 --[[ drawing ]]--
 
 -- layout in logical pixels. main: name, then the hp bar, then distance (left)

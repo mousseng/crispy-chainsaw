@@ -257,9 +257,13 @@ function widgets.split_text(r, label, x, y, colors, n)
         label:draw(x, y, colors[1]);
         return w, h;
     end
+    -- only the joins between bands clip: the outer edges reach well past the
+    -- text, so overhangs past its advance (an italic's last letter) survive.
     local band_w = w / n;
     for i = 1, n do
-        r.push_clip(x + band_w * (i - 1), y - h, band_w, h * 3);
+        local x0 = i == 1 and x - h or x + band_w * (i - 1);
+        local x1 = i == n and x + w + h or x + band_w * i;
+        r.push_clip(x0, y - h, x1 - x0, h * 3);
         label:draw(x, y, colors[i]);
         r.pop_clip();
     end

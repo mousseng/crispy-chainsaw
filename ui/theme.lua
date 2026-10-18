@@ -1,13 +1,17 @@
 --[[
 * theme loader.
 *
-* a theme is a lua file returning { base, palette, font, slots }. every slot
+* a theme is a lua file returning { base, palette, font, fonts, glyphs, slots }. every slot
 * names a source - `gen = '<generator>'` or `file = '<path>'` - and every
 * source ends up as a region in one atlas texture. components only ever ask
 * for slots by name and never see where the art came from.
 *
 * themes inherit from `base` (default: 'default'). palette and font merge key
 * by key (font.file, one path or a list, is resolved beside its theme.lua); slots replace whole (a file slot does not inherit generator params).
+* `fonts` holds extra named fonts (the default theme has `decorative` and
+* `numeral`), each merged key by key like `font` and then over it, so they
+* only need what differs; one naming a `file` or `family` of its own doesn't
+* inherit the other. glyph sets and text pick one with `font = '<name>'`.
 * if a slot fails to build (missing file, bad spec) the base theme's version
 * of that slot is used instead.
 --]]
@@ -51,7 +55,7 @@ theme.SLOTS = {
 };
 
 ---named functions that add generated images to the atlas at build time, e.g.
----text glyphs. each is called as fn(ctx) with ctx = { font, glyphs, scale, add }
+---text glyphs. each is called as fn(ctx) with ctx = { font, fonts, glyphs, scale, add }
 ---where add(name, img, meta) registers a region; the return value is kept and
 ---available from theme.extra(name).
 theme.providers = {};
@@ -129,6 +133,29 @@ local function parse_color(v)
     return nil;
 end
 
+---merges theme font settings `src` (from theme dir `dir`) over `dst`,
+---resolving font files relative to that theme. a family named without a file
+---replaces any file inherited from a base theme.
+local function merge_font(dst, src, dir)
+    for k, v in pairs(src) do dst[k] = v; end
+    if (src.family ~= nil and src.file == nil) then dst.file = nil; end
+    if (src.file) then
+        local files = type(src.file) == 'table' and src.file or { src.file };
+        dst.file = {};
+        for i, f in ipairs(files) do dst.file[i] = ('%s/%s'):format(dir, f); end
+    end
+end
+
+---a named font over the regular one: its own settings win, and naming a file
+---or a family of its own drops the regular font's other one.
+local function resolve_font(font, named)
+    local out = {};
+    for k, v in pairs(font) do out[k] = v; end
+    if (named.file ~= nil or named.family ~= nil) then out.file, out.family = nil, nil; end
+    for k, v in pairs(named) do out[k] = v; end
+    return out;
+end
+
 local function norm_slice(s)
     if (type(s) == 'number') then return { s, s, s, s }; end
     return s;
@@ -199,7 +226,7 @@ function theme.build(name, scale)
         return nil, err;
     end
 
-    local palette, font, glyphs, candidates = {}, {}, {}, {};
+    local palette, font, named, glyphs, candidates = {}, {}, {}, {}, {};
     for i = #chain, 1, -1 do -- base first so derived themes win
         local def = chain[i];
         for k, v in pairs(def.palette or {}) do
@@ -210,12 +237,11 @@ function theme.build(name, scale)
                 palette[k] = c;
             end
         end
-        for k, v in pairs(def.font or {}) do font[k] = v; end
         -- font files are relative to the theme that names them.
-        if (def.font and def.font.file) then
-            local files = type(def.font.file) == 'table' and def.font.file or { def.font.file };
-            font.file = {};
-            for i, f in ipairs(files) do font.file[i] = ('%s/%s'):format(def.dir, f); end
+        merge_font(font, def.font or {}, def.dir);
+        for fname, cfg in pairs(def.fonts or {}) do
+            named[fname] = named[fname] or {};
+            merge_font(named[fname], cfg, def.dir);
         end
         for set, cfg in pairs(def.glyphs or {}) do
             glyphs[set] = glyphs[set] or {};
@@ -226,6 +252,9 @@ function theme.build(name, scale)
             table.insert(candidates[slot], 1, { spec = spec, def = def });
         end
     end
+
+    local fonts = {};
+    for fname, cfg in pairs(named) do fonts[fname] = resolve_font(font, cfg); end
 
     local items, slots = {}, {};
     for slot, list in pairs(candidates) do
@@ -247,7 +276,7 @@ function theme.build(name, scale)
 
     local extra = {};
     local ctx = {
-        font = font, glyphs = glyphs, scale = scale,
+        font = font, fonts = fonts, glyphs = glyphs, scale = scale,
         add = function (name, img, meta)
             items[#items + 1] = { name = name, img = img };
             slots[name] = meta;
@@ -273,7 +302,7 @@ function theme.build(name, scale)
         meta.region = regions[slot];
     end
 
-    return { name = name, scale = scale, palette = palette, font = font, glyphs = glyphs, slots = slots, extra = extra, sheet = sheet };
+    return { name = name, scale = scale, palette = palette, font = font, fonts = fonts, glyphs = glyphs, slots = slots, extra = extra, sheet = sheet };
 end
 
 --[[ active theme ]]--
@@ -325,8 +354,11 @@ function theme.extra(key)
     return current and current.extra[key];
 end
 
-function theme.font()
-    return current and current.font or {};
+---the regular font, or the named font `name` (from `fonts`; the regular one
+---if the theme has no such font).
+function theme.font(name)
+    if (current == nil) then return {}; end
+    return name ~= nil and current.fonts[name] or current.font;
 end
 
 function theme.texture()

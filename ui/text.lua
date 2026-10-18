@@ -12,6 +12,9 @@
 *                 the rest of the atlas, so use it for values that tick (hp, mp,
 *                 tp, timers). only covers the characters in the set.
 *
+* either can use one of the theme's named fonts (`fonts` in the theme, e.g.
+* 'decorative' or 'numeral') with `font = '<name>'` in its settings.
+*
 * glyphs are rendered white and tinted per draw: white fill * tint = tint,
 * black outline * tint = black, so changing colour never re-rasterises.
 --]]
@@ -48,8 +51,12 @@ local function font_file_family(files)
     local family;
     for _, path in ipairs(files or {}) do
         if (loaded[path] == nil) then
-            loaded[path] = gdi:add_font_file(path) or false;
-            if (not loaded[path]) then
+            -- an unpatched gdifonttexture.dll has no AddFontFile: ffi raises on the lookup
+            local ok, family = pcall(gdi.add_font_file, gdi, path);
+            loaded[path] = ok and family or false;
+            if (not ok) then
+                print(('[crispy-chainsaw] could not load font %s (is gdifonttexture.dll the patched one?): %s'):format(path, tostring(family)));
+            elseif (not family) then
                 print(('[crispy-chainsaw] could not load font %s'):format(path));
             end
         end
@@ -60,12 +67,13 @@ end
 
 ---maps a theme font + overrides onto gdifonts settings.
 local function style(opts, font, scale)
-    local bold = opts.bold;
+    local bold, italic = opts.bold, opts.italic;
     if (bold == nil) then bold = font.bold; end
+    if (italic == nil) then italic = font.italic; end
     return {
         font_family   = opts.family or font_file_family(font.file) or font.family or 'Arial',
         font_height   = math.floor((opts.size or font.size or 12) * scale + 0.5),
-        font_flags    = bold and gdi.FontFlags.Bold or gdi.FontFlags.None,
+        font_flags    = bit.bor(bold and gdi.FontFlags.Bold or 0, italic and gdi.FontFlags.Italic or 0),
         outline_width = (opts.outline or font.outline or 2) * scale,
         outline_color = opts.outline_color or font.outline_color or 0xFF000000,
         font_color    = opts.tint == false and (opts.color or 0xFFFFFFFF) or 0xFFFFFFFF,
@@ -84,12 +92,13 @@ end
 --[[ baselines ]]--
 
 -- gdifonttexture trims each texture to its ink on the left, right and bottom
--- but never the top, so every capture starts at the line top. a capture of "H"
--- (flat bottom, no descender) then ends at the baseline plus the outline below
--- it. text in one style shares that, so lining up those offsets lines up
--- baselines whatever the ascenders and descenders of the strings themselves.
--- likewise "Hgjpqy" ends at the deepest descender: the full line's height.
+-- but never the top, so every capture starts at the line top. the fill of "H"
+-- (flat bottom, no descender) then ends at the baseline. text in one style
+-- shares that, so lining up those offsets lines up baselines whatever the
+-- ascenders and descenders of the strings themselves. likewise "Hgjpqy" ends
+-- at the deepest descender, outline and all: the full line's height.
 local baselines, depths, probe = {}, {}, nil;
+local capture; -- below, with the glyph sets
 
 local function probe_height(st, str)
     if (probe == nil) then
@@ -102,13 +111,42 @@ local function probe_height(st, str)
     return rect and rect.bottom or st.font_height;
 end
 
----top-of-line to baseline (outline included), and top-of-line to the bottom
----of the deepest descender, for gdifonts style `st`.
+---where the fill of "H" ends below the line top, to a fraction of a pixel, or
+---nil if it can't be read back. the outlined capture's height only gives
+---whole pixels, and faint antialiasing under a slanted (italic) stroke adds a
+---row to it. instead: the lowest row the serifs cover fully, plus how much of
+---the row under it they cover.
+local function fill_baseline(st)
+    probe_height(st, 'H');
+    probe:set_outline_color(0x00000000);
+    local ok, img = pcall(capture, probe, 'H');
+    if (not ok or img == nil) then return nil; end
+    local rows, full = {}, 0;
+    for y = 0, img.h - 1 do
+        local m = 0;
+        for x = 0, img.w - 1 do
+            local a = bit.rshift(img.px[y * img.w + x], 24);
+            if (a > m) then m = a; end
+        end
+        rows[y] = m;
+        if (m > full) then full = m; end
+    end
+    if (full == 0) then return nil; end
+    for y = img.h - 1, 0, -1 do
+        if (rows[y] >= full * 0.9) then
+            return y + 1 + (rows[y + 1] or 0) / full;
+        end
+    end
+    return nil;
+end
+
+---top-of-line to baseline, and top-of-line to the bottom of the deepest
+---descender (outline included), for gdifonts style `st`.
 local function measure_baseline(st)
     local key = ('%s|%d|%d|%s'):format(st.font_family, st.font_height, st.font_flags, st.outline_width);
     local b = baselines[key];
     if (b == nil) then
-        b = probe_height(st, 'H');
+        b = fill_baseline(st) or probe_height(st, 'H');
         baselines[key], depths[key] = b, math.max(b, probe_height(st, 'Hgjpqy'));
     end
     return b, depths[key];
@@ -119,11 +157,12 @@ end
 local label = {};
 label.__index = label;
 
----@param opts table|nil { text, size, family, bold, outline, outline_color, color, tint }
----sizes are logical pixels; omitted values come from the theme's font.
+---@param opts table|nil { text, font, size, family, bold, italic, outline, outline_color, color, tint }
+---sizes are logical pixels; omitted values come from the theme's font (or
+---its named font `font`).
 function text.new(opts)
     opts = opts or {};
-    local st = style(opts, theme.font(), active_scale());
+    local st = style(opts, theme.font(opts.font), active_scale());
     st.text = opts.text or '';
     local self = setmetatable({ opts = opts, st = st, obj = gdi:create_object(st, true) }, label);
     objects[self] = true;
@@ -173,7 +212,7 @@ local function warn(fmt, ...)
 end
 
 ---rasterises a string and reads it back as an image cropped to the text.
-local function capture(obj, str)
+function capture(obj, str)
     obj:set_text(str);
     local tex, rect = obj:get_texture();
     if (tex == nil) then return nil; end
@@ -229,7 +268,7 @@ end
 ---trimmed widths W: adv(c) = W("0c0") - W("00"), and the bearing of c
 ---relative to "0" is adv(c) - adv(0) - (W("c0") - W("00")).
 local function build_set(ctx, name, cfg)
-    local st = style(cfg, ctx.font, ctx.scale);
+    local st = style(cfg, cfg.font and ctx.fonts[cfg.font] or ctx.font, ctx.scale);
     local obj = gdi:create_object(st, true);
     local function width(s)
         obj:set_text(s);
@@ -320,7 +359,13 @@ end
 theme.providers.glyphs = function (ctx)
     local sets = {};
     for name, cfg in pairs(ctx.glyphs) do
-        sets[name] = build_set(ctx, name, cfg);
+        -- one at a time, so a set that fails leaves the others in the atlas
+        local ok, set = pcall(build_set, ctx, name, cfg);
+        if (ok) then
+            sets[name] = set;
+        else
+            warn('glyph set "%s" failed: %s; drawing it with gdifonts', name, tostring(set));
+        end
     end
     return sets;
 end
@@ -384,10 +429,10 @@ end
 ---re-reads theme font settings for every live object. call after a theme
 ---or scale change. (number objects read the atlas directly.)
 function text.restyle()
-    local font, scale = theme.font(), active_scale();
+    local scale = active_scale();
     baselines, depths = {}, {};
     for self in pairs(objects) do
-        self.st = style(self.opts, font, scale);
+        self.st = style(self.opts, theme.font(self.opts.font), scale);
         self.base = nil;
         apply(self.obj, self.st);
     end

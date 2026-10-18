@@ -65,6 +65,14 @@ return {
         sc_wait       = 0xFFA0A4AC,
         sc_open       = 0xFF9CE07A,
         sc_chain      = 0xFFFFD860,
+        -- the skillchain component: its header while the chain is only open
+        -- ("Chance!") and once closed by a skillchain ("Skillchain!"), magic
+        -- bursts, what can come next (see-through), and the closing "fin"
+        sc_chance     = 0xFFFFF0C8,
+        sc_skillchain = 0xFFFFD860,
+        sc_burst      = 0xFFFFB060,
+        sc_combo      = 0x90F0F0F0,
+        sc_fin        = 0xFFA0A4AC,
         el_fire       = 0xFFFF6A4A,
         el_ice        = 0xFF8FE0FF,
         el_wind       = 0xFF7FE08A,
@@ -102,6 +110,23 @@ return {
         outline_color = 0xFF000000,
     },
 
+    -- named fonts, each merged over `font`: one with a `file` or `family` of
+    -- its own doesn't inherit font's. glyph sets and text pick one with
+    -- font = '<name>'.
+    fonts = {
+        -- headings and flourishes ("Chance!", skillchain names, "Burst!")
+        decorative = {
+            file   = { 'fonts/Alegreya-VariableFont_wght.ttf', 'fonts/Alegreya-Italic-VariableFont_wght.ttf' },
+            family = 'Georgia',
+            italic = true,
+        },
+        -- big figures (damage)
+        numeral = {
+            file   = { 'fonts/Alegreya-VariableFont_wght.ttf', 'fonts/Alegreya-Italic-VariableFont_wght.ttf' },
+            family = 'Georgia',
+        },
+    },
+
     -- glyph sets pre-rendered into the atlas for fast-changing values (hp, tp,
     -- timers). each merges over `font`; `chars` limits what can be drawn.
     glyphs = {
@@ -114,6 +139,11 @@ return {
         -- inventory: stack counts on icons, and gil / space used.
         count  = { size = 10, chars = '0123456789' },
         inv    = { size = 12, chars = '0123456789,/ gil' },
+        -- skillchains: the header, then the letters of every skillchain's
+        -- name plus "Burst!" and "fin", and the damage / window figures.
+        sc_title = { font = 'decorative', size = 26, chars = 'CSacehikln!' },
+        sc_deco  = { font = 'decorative', size = 18, chars = 'BCDFGILRSTUabcdefghiklmnopqrstuvx!' },
+        sc_num   = { font = 'numeral', size = 16, chars = '0123456789,.' },
     },
 
     slots = {

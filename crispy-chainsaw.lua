@@ -8,6 +8,7 @@ local d3d8     = require('d3d8');
 local ffi      = require('ffi');
 local settings = require('settings');
 local client   = require('game.client');
+local sc       = require('game.skillchain');
 local treasure = require('game.treasure');
 local jitlog   = require('diag.jitlog');
 local mem      = require('diag.mem');
@@ -204,6 +205,7 @@ end);
 
 ashita.events.register('packet_in', 'packet_in_cb', function (e)
     treasure.packet_in(e); -- even while treas is off, so drop times survive toggling it
+    sc.packet_in(e);       -- here rather than in a component: target and skillchain both read it
     hud.packet_in(e);
 end);
 
