@@ -166,6 +166,24 @@ local function fail(fmt, ...)
     error(fmt:format(...), 0);
 end
 
+---a slot's meta in the one shape every built-in slot has: the same keys, in
+---the same order, none nil (region is filled in once the atlas is packed). a
+---trace reading meta.density (say) guards on the table's hash size and the
+---key's place in it, so metas of different shapes (from generators, from
+---files, with or without an outset) fail that guard from one nineslice to the
+---next, and 32-bit moonjit can't compile the exit.
+local function shaped(meta)
+    return {
+        type    = meta.type,
+        region  = false,
+        slice   = meta.slice or false,
+        outset  = meta.outset or 0,
+        pivot   = meta.pivot or { 0.5, 0.5 },
+        density = meta.density,
+        tint    = meta.tint == true,
+    };
+end
+
 ---builds one slot from one source. returns img, meta or raises.
 local function build_source(slot, spec, dir, scale)
     local want = theme.SLOTS[slot];
@@ -212,7 +230,7 @@ local function build_source(slot, spec, dir, scale)
     if (want ~= nil and meta.type ~= want) then
         fail('produced a %s, slot requires %s', meta.type, want);
     end
-    return img, meta;
+    return img, shaped(meta);
 end
 
 ---resolves a theme into its merged definition and a packed atlas image.
@@ -295,7 +313,7 @@ function theme.build(name, scale)
     local white = image.new(4, 4);
     for i = 0, 15 do white.px[i] = 0xFFFFFFFF; end
     items[#items + 1] = { name = '_white', img = white };
-    slots._white = { type = 'sprite', pivot = { 0, 0 }, density = scale, tint = true };
+    slots._white = shaped({ type = 'sprite', pivot = { 0, 0 }, density = scale, tint = true });
 
     local sheet, regions = atlas.pack(items);
     for slot, meta in pairs(slots) do
@@ -339,7 +357,8 @@ function theme.release()
     current = nil;
 end
 
----@return table|nil meta { type, region, slice, outset, pivot, density, tint }
+---@return table|nil meta { type, region, slice, outset, pivot, density, tint }; slice is
+---false for sprites, outset 0 without one
 function theme.slot(name)
     return current and current.slots[name];
 end

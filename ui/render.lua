@@ -48,7 +48,7 @@ end
 
 -- draw commands as parallel arrays to avoid per-frame table garbage: a run of
 -- quads on one texture, from cmd_first[i] up to the next run's first quad.
--- every draw starts one (see use()); finish_cmds then merges neighbours that
+-- every draw starts one (its K_TEX record); finish_cmds then merges neighbours that
 -- share a texture and fills in the counts, so drawing never compares textures.
 local cmd_tex, cmd_first, cmd_count = {}, {}, {};
 local ncmds = 0;
@@ -105,18 +105,15 @@ local function grow_rec(need)
     rec, rcap = nr, ncap;
 end
 
----starts a run of quads on tex, with room for n more record doubles. call
----once per draw, before its records.
-local function use(tex, n)
-    if (nrec + TEX_LEN + n > rcap) then grow_rec(nrec + TEX_LEN + n); end
-    ncmds = ncmds + 1;
-    cmd_tex[ncmds] = tex;
-    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
-    nrec = nrec + TEX_LEN;
-end
+-- every draw starts with a K_TEX record, a run of quads on its texture, after
+-- making room for that and its own records. each draw writes this out itself
+-- rather than calling a helper: a small function called from every draw gets
+-- compiled on its own, and its return to each caller but the first needs a
+-- side trace that 32-bit moonjit can't compile ("register coalescing too
+-- complex"), retried a few hundred times each.
 
----records a quad in a single colour (already faded). use() must have made
----room for it.
+---records a quad in a single colour (already faded), after its draw's K_TEX
+---record. only glyph_pass calls this, so its return has the one target.
 local function rec_quad(x0, y0, x1, y1, u0, v0, u1, v1, c)
     local i = nrec;
     rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = K_QUAD, x0, y0, x1, y1;
@@ -392,8 +389,15 @@ end
 
 ---raw textured quad with explicit uvs (defaults to the whole texture).
 function render.image(tex, x, y, w, h, color, u0, v0, u1, v1)
-    use(tex, Q_LEN);
-    rec_quad(x, y, x + w, y + h, u0 or 0, v0 or 0, u1 or 1, v1 or 1, fade(color or 0xFFFFFFFF));
+    if (nrec + TEX_LEN + Q_LEN > rcap) then grow_rec(nrec + TEX_LEN + Q_LEN); end
+    ncmds = ncmds + 1;
+    cmd_tex[ncmds] = tex;
+    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
+    nrec = nrec + TEX_LEN;
+    local i = nrec;
+    rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = K_QUAD, x, y, x + w, y + h;
+    rec[i + 5], rec[i + 6], rec[i + 7], rec[i + 8], rec[i + 9] = u0 or 0, v0 or 0, u1 or 1, v1 or 1, fade(color or 0xFFFFFFFF);
+    nrec = i + Q_LEN;
 end
 
 ---solid rectangle. pass `bottom` for a vertical gradient.
@@ -402,9 +406,16 @@ function render.rect(x, y, w, h, color, bottom)
     if (meta == nil) then return; end
     local r = meta.region;
     local u, v = (r.u0 + r.u1) * 0.5, (r.v0 + r.v1) * 0.5;
-    use(theme.texture(), Q_LEN);
+    if (nrec + TEX_LEN + Q_LEN > rcap) then grow_rec(nrec + TEX_LEN + Q_LEN); end
+    ncmds = ncmds + 1;
+    cmd_tex[ncmds] = theme.texture();
+    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
+    nrec = nrec + TEX_LEN;
     if (bottom == nil or bottom == color) then
-        rec_quad(x, y, x + w, y + h, u, v, u, v, fade(color));
+        local i = nrec;
+        rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = K_QUAD, x, y, x + w, y + h;
+        rec[i + 5], rec[i + 6], rec[i + 7], rec[i + 8], rec[i + 9] = u, v, u, v, fade(color);
+        nrec = i + Q_LEN;
     else
         local i = nrec;
         rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = K_VGRAD, x, y, x + w, y + h;
@@ -419,7 +430,11 @@ end
 -- takes over every value still live there; with this many, moonjit can't on
 -- 32-bit x86 ("register coalescing too complex"), and retries forever.
 local function rec_nine(meta, x, y, w, h, color, flip)
-    use(theme.texture(), NINE_LEN);
+    if (nrec + TEX_LEN + NINE_LEN > rcap) then grow_rec(nrec + TEX_LEN + NINE_LEN); end
+    ncmds = ncmds + 1;
+    cmd_tex[ncmds] = theme.texture();
+    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
+    nrec = nrec + TEX_LEN;
     local k = theme.active().scale / meta.density; -- texture px -> screen px
     local i = nrec;
     rec[i] = K_NINE;
@@ -494,7 +509,7 @@ end
 ---pixels, e.g. to keep text clear of a shape's corners.
 function render.slot_edges(name)
     local meta = theme.slot(name);
-    if (meta == nil or meta.slice == nil) then return 0, 0, 0, 0; end
+    if (meta == nil or not meta.slice) then return 0, 0, 0, 0; end
     local k = theme.active().scale / meta.density;
     local sl = meta.slice;
     return sl[1] * k, sl[2] * k, sl[3] * k, sl[4] * k;
@@ -525,8 +540,15 @@ function render.sprite(name, x, y, color, scale)
     local w, h = r.w * k, r.h * k;
     local px, py = meta.pivot[1], meta.pivot[2];
     x, y = round(x - w * px), round(y - h * py);
-    use(theme.texture(), Q_LEN);
-    rec_quad(x, y, x + w, y + h, r.u0, r.v0, r.u1, r.v1, fade(slot_color(meta, color or 0xFFFFFFFF)));
+    if (nrec + TEX_LEN + Q_LEN > rcap) then grow_rec(nrec + TEX_LEN + Q_LEN); end
+    ncmds = ncmds + 1;
+    cmd_tex[ncmds] = theme.texture();
+    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
+    nrec = nrec + TEX_LEN;
+    local i = nrec;
+    rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = K_QUAD, x, y, x + w, y + h;
+    rec[i + 5], rec[i + 6], rec[i + 7], rec[i + 8], rec[i + 9] = r.u0, r.v0, r.u1, r.v1, fade(slot_color(meta, color or 0xFFFFFFFF));
+    nrec = i + Q_LEN;
     return w, h;
 end
 
@@ -539,7 +561,11 @@ function render.sprite_rot(name, x, y, angle, color, scale)
     local k = theme.active().scale / meta.density * (scale or 1);
     local w, h = r.w * k, r.h * k;
     local x0, y0 = -w * meta.pivot[1], -h * meta.pivot[2];
-    use(theme.texture(), ROT_LEN);
+    if (nrec + TEX_LEN + ROT_LEN > rcap) then grow_rec(nrec + TEX_LEN + ROT_LEN); end
+    ncmds = ncmds + 1;
+    cmd_tex[ncmds] = theme.texture();
+    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
+    nrec = nrec + TEX_LEN;
     local i = nrec;
     rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4], rec[i + 5], rec[i + 6] = K_ROT, x, y, x0, y0, x0 + w, y0 + h;
     rec[i + 7], rec[i + 8], rec[i + 9], rec[i + 10], rec[i + 11], rec[i + 12] = math.cos(angle), math.sin(angle), r.u0, r.v0, r.u1, r.v1;
@@ -582,7 +608,12 @@ function render.glyphs(set, str, x, y, color, align)
     local w = render.glyphs_width(set, str);
     x, y = round(x - w * (ALIGN[align or 'left'] or 0)), round(y);
     local c = color or 0xFFFFFFFF;
-    use(theme.texture(), (set.outline and #str * 2 or #str) * Q_LEN);
+    local n = (set.outline and #str * 2 or #str) * Q_LEN;
+    if (nrec + TEX_LEN + n > rcap) then grow_rec(nrec + TEX_LEN + n); end
+    ncmds = ncmds + 1;
+    cmd_tex[ncmds] = theme.texture();
+    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
+    nrec = nrec + TEX_LEN;
     if (set.outline) then
         glyph_pass(set, str, x, y, fade(bor(band(c, 0xFF000000), 0x00FFFFFF)), 'outline');
     end
@@ -613,8 +644,15 @@ function render.text(font, x, y, color, tint)
     local c = color or 0xFFFFFFFF;
     if (not tint) then c = bor(band(c, 0xFF000000), 0x00FFFFFF); end
     x, y = round(x), round(y);
-    use(tex, Q_LEN);
-    rec_quad(x, y, x + w, y + h, 0, 0, w / dims[1], h / dims[2], fade(c));
+    if (nrec + TEX_LEN + Q_LEN > rcap) then grow_rec(nrec + TEX_LEN + Q_LEN); end
+    ncmds = ncmds + 1;
+    cmd_tex[ncmds] = tex;
+    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
+    nrec = nrec + TEX_LEN;
+    local i = nrec;
+    rec[i], rec[i + 1], rec[i + 2], rec[i + 3], rec[i + 4] = K_QUAD, x, y, x + w, y + h;
+    rec[i + 5], rec[i + 6], rec[i + 7], rec[i + 8], rec[i + 9] = 0, 0, w / dims[1], h / dims[2], fade(c);
+    nrec = i + Q_LEN;
     return w, h;
 end
 

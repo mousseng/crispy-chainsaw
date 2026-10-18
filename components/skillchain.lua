@@ -40,13 +40,20 @@ local SHOWN = 4;    -- steps shown, the latest
 local FADE = 1;     -- seconds the chain fades out over, at the end of its linger
 local LABELS = 96;  -- regular-font names kept before the cache starts over
 
--- measure only, or draw atlas text, or draw the regular font's (each name its
--- own texture, so after the atlas rather than interleaved with it)
-local MEASURE, ATLAS, LABEL = 0, 1, 2;
-
 local chain = nil; -- the record shown, from game/skillchain.lua
 local clock = 0;
 local alpha = 1;
+
+-- the frame's layout, made once (by the first measure after update) relative
+-- to the component's corner: what to draw where, one list per kind of text so
+-- each draw loop sees one kind. atlas text, then the regular font's (each name
+-- its own texture, so after the atlas rather than interleaved with it), and
+-- skillchain names, split into their elements' colours. moonjit can't compile
+-- one put() shared by every row and pass: its pass test and receiver change
+-- from call to call, and each side exit fails to compile.
+local function list() return { n = 0, t = {}, x = {}, y = {}, c = {} }; end
+local atlas, labels_out, splits = list(), list(), list(); -- splits.c: step names
+local laid_s, laid_h = nil, 0; -- the scale it was made at (nil: not this frame), its height
 
 --[[ text ]]--
 
@@ -108,7 +115,7 @@ end
 --[[ rows ]]--
 
 -- each row hangs from one baseline, as far down as its tallest text needs;
--- these return the row's height and draw only in the matching pass.
+-- these queue its texts and return its height.
 
 ---the height of a row of texts a, b, c (b and c may be nil) around one
 ---baseline, tightened by LEADING.
@@ -129,59 +136,66 @@ local function metrics(a, b, c)
     return asc, (asc + dep) * LEADING;
 end
 
----t with its baseline at `base`, if this is its pass. returns its width.
-local function put(t, x, base, color, pass, want)
-    if (pass == want) then t:draw(x, base - t:baseline(), color); end
+local function queue(l, t, x, y, color)
+    local n = l.n + 1;
+    l.n = n;
+    l.t[n], l.x[n], l.y[n], l.c[n] = t, x, y, color;
+end
+
+---queues t with its baseline at `base`; returns its width. one per kind of
+---text, so the methods each calls are always the same ones.
+local function put_atlas(t, x, base, color)
+    queue(atlas, t, x, base - t:baseline(), color);
     return (t:size());
 end
 
-local function header(r, pass, x, y, str, color)
+local function put_label(t, x, base, color)
+    queue(labels_out, t, x, base - t:baseline(), color);
+    return (t:size());
+end
+
+local function header(x, y, str, color)
     local t = glyphs('sc_title', str);
     local asc, h = metrics(t);
-    put(t, x, y + asc, color, pass, ATLAS);
+    put_atlas(t, x, y + asc, color);
     return h;
 end
 
 ---a weaponskill: its name, then its damage.
-local function ws_row(r, pass, x, y, s, step)
+local function ws_row(x, y, s, step)
     local name, dmg = label(step.name, NAME_SIZE), figure(step);
     local asc, h = metrics(name, dmg);
     local base = y + asc;
-    local w = put(name, x, base, col('text'), pass, LABEL);
-    if (dmg ~= nil) then put(dmg, x + w + GAP * s, base, col('text'), pass, ATLAS); end
+    local w = put_label(name, x, base, col('text'));
+    if (dmg ~= nil) then put_atlas(dmg, x + w + GAP * s, base, col('text')); end
     return h;
 end
 
 ---a skillchain: its name in its elements' colours, then its damage.
-local function sc_row(r, pass, x, y, s, step)
+local function sc_row(x, y, s, step)
     local name, dmg = glyphs('sc_deco', step.name), figure(step);
     local asc, h = metrics(name, dmg);
     local base = y + asc;
     local w = (name:size());
-    if (pass == ATLAS) then
-        local els = sc.ELEMENTS[step.name];
-        local n = els and #els or 1;
-        for i = 1, n do band_colors[i] = els and col(widgets.ELEMENT[els[i]]) or col('text'); end
-        widgets.split_text(r, name, x, base - name:baseline(), band_colors, n);
-    end
-    if (dmg ~= nil) then put(dmg, x + w + GAP * s, base, col('text'), pass, ATLAS); end
+    queue(splits, name, x, base - name:baseline(), step.name);
+    if (dmg ~= nil) then put_atlas(dmg, x + w + GAP * s, base, col('text')); end
     return h;
 end
 
 ---a magic burst: "Burst!", the spell, then its damage if it did any.
-local function burst_row(r, pass, x, y, s, b)
+local function burst_row(x, y, s, b)
     local lead, name, dmg = glyphs('sc_deco', 'Burst!'), label(b.name, NAME_SIZE), figure(b);
     local asc, h = metrics(lead, name, dmg);
     local base = y + asc;
-    x = x + put(lead, x, base, col('sc_burst'), pass, ATLAS) + GAP * s;
-    x = x + put(name, x, base, col('text'), pass, LABEL) + GAP * s;
-    if (dmg ~= nil) then put(dmg, x, base, col('text'), pass, ATLAS); end
+    x = x + put_atlas(lead, x, base, col('sc_burst')) + GAP * s;
+    x = x + put_label(name, x, base, col('text')) + GAP * s;
+    if (dmg ~= nil) then put_atlas(dmg, x, base, col('text')); end
     return h;
 end
 
 ---the window's countdown (wait, then go) and what can follow, wrapping at
 ---the component's width under where the first began.
-local function next_row(r, pass, x, y, s)
+local function next_row(x, y, s)
     local waiting = clock < chain.opens;
     local tc = col(waiting and 'sc_wait' or 'sc_open');
     lbl_wait = lbl_wait or text.new({ text = 'wait', size = SMALL_SIZE });
@@ -201,8 +215,8 @@ local function next_row(r, pass, x, y, s)
     local asc, h = metrics(state, timer, first);
     local base = y + asc;
     local sw = math.max((lbl_wait:size()), (lbl_go:size()));
-    put(state, x, base, tc, pass, LABEL);
-    put(timer, x + sw + GAP * s, base, tc, pass, ATLAS);
+    put_label(state, x, base, tc);
+    put_atlas(timer, x + sw + GAP * s, base, tc);
 
     -- fixed columns, so the names don't shift as the figures tick
     local cx0 = x + sw + GAP * s + (timer_ref:size()) + GAP * 2 * s;
@@ -214,47 +228,68 @@ local function next_row(r, pass, x, y, s)
         if (cx > cx0 and cx + w > right) then
             cx, lines = cx0, lines + 1;
         end
-        put(l, cx, base + (lines - 1) * (h + ROW_GAP * s), cc, pass, LABEL);
+        put_label(l, cx, base + (lines - 1) * (h + ROW_GAP * s), cc);
         cx = cx + w + GAP * s;
     end
     return h * lines + ROW_GAP * s * (lines - 1);
 end
 
-local function fin_row(r, pass, x, y)
+local function fin_row(x, y)
     local t = glyphs('sc_deco', 'fin');
     local asc, h = metrics(t);
-    put(t, x, y + asc, col('sc_fin'), pass, ATLAS);
+    put_atlas(t, x, y + asc, col('sc_fin'));
     return h;
 end
 
----lays out (and in the drawing passes draws) the chain from (x, y).
+---lays the chain out from (x, y), queueing what to draw.
 ---@return number height
-local function layout(r, pass, x, y, s)
+local function layout(x, y, s)
+    atlas.n, labels_out.n, splits.n = 0, 0, 0;
     local y0, gap = y, ROW_GAP * s;
     if (chain == nil) then -- placing it while unlocked
-        return header(r, pass, x, y, 'Skillchain!', col('sc_skillchain'));
+        return header(x, y, 'Skillchain!', col('sc_skillchain'));
     end
-    y = y + header(r, pass, x, y, chain.chained and 'Skillchain!' or 'Chance!', col(chain.chained and 'sc_skillchain' or 'sc_chance')) + gap;
+    y = y + header(x, y, chain.chained and 'Skillchain!' or 'Chance!', col(chain.chained and 'sc_skillchain' or 'sc_chance')) + gap;
 
     local steps = chain.steps or EMPTY;
     for i = math.max(1, #steps - SHOWN + 1), #steps do
         local step = steps[i];
-        y = y + ws_row(r, pass, x, y, s, step) + gap;
+        y = y + ws_row(x, y, s, step) + gap;
         if (step.sc ~= nil) then
-            y = y + sc_row(r, pass, x + INDENT * s, y, s, step.sc) + gap;
+            y = y + sc_row(x + INDENT * s, y, s, step.sc) + gap;
             local bursts = step.bursts or EMPTY;
             for j = 1, #bursts do
-                y = y + burst_row(r, pass, x + INDENT * s, y, s, bursts[j]) + gap;
+                y = y + burst_row(x + INDENT * s, y, s, bursts[j]) + gap;
             end
         end
     end
 
     if (clock <= chain.closes) then
-        y = y + next_row(r, pass, x, y, s);
+        y = y + next_row(x, y, s);
     else
-        y = y + fin_row(r, pass, x, y);
+        y = y + fin_row(x, y);
     end
     return y - y0;
+end
+
+--[[ drawing ]]--
+
+-- a loop each, kept small: moonjit compiles a loop in a small function
+-- best, with few values live at its exits.
+
+local function draw_list(l, ox, oy)
+    local t, xs, ys, cs = l.t, l.x, l.y, l.c;
+    for i = 1, l.n do t[i]:draw(ox + xs[i], oy + ys[i], cs[i]); end
+end
+
+local function draw_splits(r, ox, oy)
+    local t, xs, ys, names = splits.t, splits.x, splits.y, splits.c;
+    for i = 1, splits.n do
+        local els = sc.ELEMENTS[names[i]];
+        local n = els and #els or 1;
+        for k = 1, n do band_colors[k] = els and col(widgets.ELEMENT[els[k]]) or col('text'); end
+        widgets.split_text(r, t[i], ox + xs[i], oy + ys[i], band_colors, n);
+    end
 end
 
 --[[ component ]]--
@@ -280,6 +315,7 @@ function skillchain.update(ctx, dt)
     clock = sc.now();
     sc.tick(clock);
     chain = pick();
+    laid_s = nil;
     alpha = 1;
     if (chain ~= nil and clock > chain.closes) then
         alpha = math.max(0, math.min(1, (chain.closes + sc.LINGER - clock) / FADE));
@@ -288,16 +324,18 @@ end
 
 function skillchain.measure(ctx)
     if (chain == nil and not hud.is_unlocked()) then return 0, 0; end
-    return W * ctx.scale, layout(nil, MEASURE, 0, 0, ctx.scale);
+    local s = ctx.scale;
+    if (laid_s ~= s) then laid_h, laid_s = layout(0, 0, s), s; end
+    return W * s, laid_h;
 end
 
 function skillchain.draw(r, ctx, x, y)
     local w, h = skillchain.measure(ctx);
     if (w == 0) then return 0, 0; end
-    local s = ctx.scale;
     r.set_opacity(chain == nil and 0.5 or alpha);
-    layout(r, ATLAS, x, y, s);
-    layout(r, LABEL, x, y, s);
+    draw_list(atlas, x, y);
+    draw_splits(r, x, y);
+    draw_list(labels_out, x, y);
     r.set_opacity(1);
     return w, h;
 end
