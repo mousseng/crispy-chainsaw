@@ -31,7 +31,7 @@ local widgets = require('ui.widgets');
 local skillchain = {}; -- settings defaults: components/list.lua
 
 -- layout, logical px. steps' skillchains and bursts sit INDENT in; the
--- combos wrap at W. rows stack at LEADING times their text's line height: a
+-- component is W wide. rows stack at LEADING times their text's line height: a
 -- line counts the font's whole ascent and descent, mostly empty space here.
 local W, INDENT, GAP, ROW_GAP = 280, 16, 6, 0;
 local LEADING = 0.78;
@@ -193,8 +193,8 @@ local function burst_row(x, y, s, b)
     return h;
 end
 
----the window's countdown (wait, then go) and what can follow, wrapping at
----the component's width under where the first began.
+---the window's countdown (wait, then go) and what can follow, one per line
+---under where the first began.
 local function next_row(x, y, s)
     local waiting = clock < chain.opens;
     local tc = col(waiting and 'sc_wait' or 'sc_open');
@@ -218,18 +218,12 @@ local function next_row(x, y, s)
     put_label(state, x, base, tc);
     put_atlas(timer, x + sw + GAP * s, base, tc);
 
-    -- fixed columns, so the names don't shift as the figures tick
-    local cx0 = x + sw + GAP * s + (timer_ref:size()) + GAP * 2 * s;
-    local cx, right, lines = cx0, x + W * s, 1;
+    -- a fixed column, so the names don't shift as the figures tick
+    local cx = x + sw + GAP * s + (timer_ref:size()) + GAP * 2 * s;
+    local lines = math.max(1, #combos);
     local cc = col('sc_combo');
     for i = 1, #combos do
-        local l = label(combos[i], SMALL_SIZE);
-        local w = (l:size());
-        if (cx > cx0 and cx + w > right) then
-            cx, lines = cx0, lines + 1;
-        end
-        put_label(l, cx, base + (lines - 1) * (h + ROW_GAP * s), cc);
-        cx = cx + w + GAP * s;
+        put_label(label(combos[i], SMALL_SIZE), cx, base + (i - 1) * (h + ROW_GAP * s), cc);
     end
     return h * lines + ROW_GAP * s * (lines - 1);
 end
