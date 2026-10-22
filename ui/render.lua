@@ -621,6 +621,43 @@ function render.glyphs(set, str, x, y, color, align)
     return w, set.height;
 end
 
+local function glyph_pass_each(set, str, x, y, c, which, dy, ka)
+    local g, ca, rgb = set.glyphs, band(rshift(c, 24), 0xFF), band(c, 0x00FFFFFF);
+    for i = 1, #str do
+        local gl = g[str:byte(i)];
+        if (gl ~= nil) then
+            local meta, k = gl[which], ka[i];
+            if (meta ~= nil and k > 0) then
+                local r, gx, gy = meta.region, x + gl.off, y + round(dy[i]);
+                local gc = bor(lshift(floor(ca * k + 0.5), 24), rgb) % 4294967296;
+                rec_quad(gx, gy, gx + r.w, gy + r.h, r.u0, r.v0, r.u1, r.v1, gc);
+            end
+            x = x + gl.adv;
+        end
+    end
+end
+
+---render.glyphs with each glyph moved down dy[i] px and its alpha scaled by
+---ka[i] (0..1), i its position in str; for per-letter animation. left
+---aligned.
+---@return number w, number h
+function render.glyphs_each(set, str, x, y, color, dy, ka)
+    local w = render.glyphs_width(set, str);
+    x, y = round(x), round(y);
+    local c = color or 0xFFFFFFFF;
+    local n = (set.outline and #str * 2 or #str) * Q_LEN;
+    if (nrec + TEX_LEN + n > rcap) then grow_rec(nrec + TEX_LEN + n); end
+    ncmds = ncmds + 1;
+    cmd_tex[ncmds] = theme.texture();
+    rec[nrec], rec[nrec + 1] = K_TEX, ncmds;
+    nrec = nrec + TEX_LEN;
+    if (set.outline) then
+        glyph_pass_each(set, str, x, y, fade(bor(band(c, 0xFF000000), 0x00FFFFFF)), 'outline', dy, ka);
+    end
+    glyph_pass_each(set, str, x, y, fade(c), 'fill', dy, ka);
+    return w, set.height;
+end
+
 -- texture sizes for text, keyed weakly by texture so they go when fonts do.
 local tex_dims = setmetatable({}, { __mode = 'k' });
 

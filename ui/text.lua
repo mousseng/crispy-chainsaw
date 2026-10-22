@@ -424,6 +424,17 @@ function number:draw(x, y, color, align)
     return fallback(self):draw(x, y, color, align);
 end
 
+---draw, with each glyph moved down dy[i] px and its alpha scaled by ka[i]; see
+---render.glyphs_each. the gdifonts fallback draws it still.
+---@return number w, number h
+function number:draw_each(x, y, color, dy, ka)
+    local gs = find_set(self.glyph_set);
+    if (gs ~= nil) then
+        return render.glyphs_each(gs, self.str, x, y, color, dy, ka);
+    end
+    return fallback(self):draw(x, y, color);
+end
+
 --[[ lifecycle ]]--
 
 ---re-reads theme font settings for every live object. call after a theme

@@ -39,6 +39,9 @@ local NAME_SIZE, SMALL_SIZE = 13, 12; -- weaponskill / spell names; the countdow
 local SHOWN = 4;    -- steps shown, the latest
 local FADE = 1;     -- seconds the chain fades out over, at the end of its linger
 local LABELS = 96;  -- regular-font names kept before the cache starts over
+-- "Chance!" comes in a letter at a time, each tossed up TOSS_H logical px and
+-- landing with a small bounce: STAGGER seconds apart, TOSS seconds each.
+local TOSS_H, STAGGER, TOSS = 10, 0.05, 0.45;
 
 local chain = nil; -- the record shown, from game/skillchain.lua
 local clock = 0;
@@ -54,6 +57,8 @@ local alpha = 1;
 local function list() return { n = 0, t = {}, x = {}, y = {}, c = {} }; end
 local atlas, labels_out, splits = list(), list(), list(); -- splits.c: step names
 local laid_s, laid_h = nil, 0; -- the scale it was made at (nil: not this frame), its height
+local toss_t, toss_x, toss_y, toss_c = nil, 0, 0, 0; -- the header while it's tossed in, else nil
+local toss_dy, toss_ka = {}, {};
 
 --[[ text ]]--
 
@@ -154,10 +159,15 @@ local function put_label(t, x, base, color)
     return (t:size());
 end
 
-local function header(x, y, str, color)
+---the header; with `toss`, tossed in a letter at a time if it's still landing.
+local function header(x, y, str, color, toss)
     local t = glyphs('sc_title', str);
     local asc, h = metrics(t);
-    put_atlas(t, x, y + asc, color);
+    if (toss and clock - chain.since < STAGGER * (#str - 1) + TOSS) then
+        toss_t, toss_x, toss_y, toss_c = t, x, y + asc - t:baseline(), color;
+    else
+        put_atlas(t, x, y + asc, color);
+    end
     return h;
 end
 
@@ -232,6 +242,7 @@ end
 ---@return number height
 local function layout(x, y, s)
     atlas.n, labels_out.n, splits.n = 0, 0, 0;
+    toss_t = nil;
     local y0, gap = y, ROW_GAP * s;
     if (chain == nil) then -- placing it while unlocked
         return header(x, y, 'Skillchain!', col('sc_skillchain'));
@@ -242,7 +253,7 @@ local function layout(x, y, s)
     elseif (chain.chained) then
         y = y + header(x, y, 'Skillchain!', col('sc_skillchain')) + gap;
     else
-        y = y + header(x, y, 'Chance!', col('sc_chance')) + gap;
+        y = y + header(x, y, 'Chance!', col('sc_chance'), true) + gap;
     end
 
     local steps = chain.steps or EMPTY;
@@ -284,6 +295,27 @@ local function draw_splits(r, ox, oy)
         for k = 1, n do band_colors[k] = els and col(widgets.ELEMENT[els[k]]) or col('text'); end
         widgets.split_text(r, t[i], ox + xs[i], oy + ys[i], band_colors, n);
     end
+end
+
+---draws the tossed header: letter i starts STAGGER * (i - 1) in and rises
+---and falls over its first 70%, then bounces a fifth as high.
+local function draw_toss(ox, oy, s)
+    local t, h, n = clock - chain.since, TOSS_H * s, #toss_t.str;
+    for i = 1, n do
+        local u = (t - STAGGER * (i - 1)) / TOSS;
+        local dy, k = 0, 1;
+        if (u <= 0) then
+            k = 0;
+        elseif (u < 0.7) then
+            local v = u / 0.7;
+            dy, k = -h * 4 * v * (1 - v), math.min(1, u * 5);
+        elseif (u < 1) then
+            local v = (u - 0.7) / 0.3;
+            dy = -h * 0.8 * v * (1 - v);
+        end
+        toss_dy[i], toss_ka[i] = dy, k;
+    end
+    toss_t:draw_each(ox + toss_x, oy + toss_y, toss_c, toss_dy, toss_ka);
 end
 
 --[[ component ]]--
@@ -328,6 +360,7 @@ function skillchain.draw(r, ctx, x, y)
     if (w == 0) then return 0, 0; end
     r.set_opacity(chain == nil and 0.5 or alpha);
     draw_list(atlas, x, y);
+    if (toss_t ~= nil) then draw_toss(x, y, ctx.scale); end
     draw_splits(r, x, y);
     draw_list(labels_out, x, y);
     r.set_opacity(1);
