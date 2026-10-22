@@ -4,14 +4,14 @@
 *
 * a header says where the chain stands: "Chance!" while it's only open (a
 * weaponskill landed, nothing to burst yet), "Skillchain!" once a skillchain
-* has closed it. then each step in turn: every weaponskill (or chaining spell
+* has closed it, and "Fin." once the window has closed. then each step in turn: every weaponskill (or chaining spell
 * or monster ability) and its damage, and nested beneath it the skillchain it
 * made and that skillchain's magic bursts. last, the window's countdown (wait,
-* then go) and, see-through, the properties that could carry the chain on;
-* once the window closes, "fin", and the chain fades out (game/skillchain.lua
-* keeps it LINGER seconds).
+* then go) and, see-through, the properties that could carry the chain on,
+* until the window closes and the chain fades out (game/skillchain.lua keeps
+* it LINGER seconds).
 *
-* the header, skillchain names, "Burst!" and "fin" are in the theme's
+* the header, skillchain names and "Burst!" are in the theme's
 * decorative font and the figures in its numeral font, both from atlas glyph
 * sets (sc_title, sc_deco, sc_num); weaponskill and spell names are in the
 * regular font. skillchain names are split into their elements' colours.
@@ -228,13 +228,6 @@ local function next_row(x, y, s)
     return h * lines + ROW_GAP * s * (lines - 1);
 end
 
-local function fin_row(x, y)
-    local t = glyphs('sc_deco', 'fin');
-    local asc, h = metrics(t);
-    put_atlas(t, x, y + asc, col('sc_fin'));
-    return h;
-end
-
 ---lays the chain out from (x, y), queueing what to draw.
 ---@return number height
 local function layout(x, y, s)
@@ -243,7 +236,14 @@ local function layout(x, y, s)
     if (chain == nil) then -- placing it while unlocked
         return header(x, y, 'Skillchain!', col('sc_skillchain'));
     end
-    y = y + header(x, y, chain.chained and 'Skillchain!' or 'Chance!', col(chain.chained and 'sc_skillchain' or 'sc_chance')) + gap;
+    local closed = clock > chain.closes;
+    if (closed) then
+        y = y + header(x, y, 'Fin.', col('sc_fin')) + gap;
+    elseif (chain.chained) then
+        y = y + header(x, y, 'Skillchain!', col('sc_skillchain')) + gap;
+    else
+        y = y + header(x, y, 'Chance!', col('sc_chance')) + gap;
+    end
 
     local steps = chain.steps or EMPTY;
     for i = math.max(1, #steps - SHOWN + 1), #steps do
@@ -258,10 +258,10 @@ local function layout(x, y, s)
         end
     end
 
-    if (clock <= chain.closes) then
+    if (not closed) then
         y = y + next_row(x, y, s);
     else
-        y = y + fin_row(x, y);
+        y = y - gap;
     end
     return y - y0;
 end

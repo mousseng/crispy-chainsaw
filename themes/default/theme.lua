@@ -66,8 +66,9 @@ return {
         sc_open       = 0xFF9CE07A,
         sc_chain      = 0xFFFFD860,
         -- the skillchain component: its header while the chain is only open
-        -- ("Chance!") and once closed by a skillchain ("Skillchain!"), magic
-        -- bursts, what can come next (see-through), and the closing "fin"
+        -- ("Chance!"), once closed by a skillchain ("Skillchain!") and once
+        -- the window's shut ("Fin."), magic bursts, and what can come next
+        -- (see-through)
         sc_chance     = 0xFFFFF0C8,
         sc_skillchain = 0xFFFFD860,
         sc_burst      = 0xFFFFB060,
@@ -140,8 +141,8 @@ return {
         count  = { size = 10, chars = '0123456789' },
         inv    = { size = 12, chars = '0123456789,/ gil' },
         -- skillchains: the header, then the letters of every skillchain's
-        -- name plus "Burst!" and "fin", and the damage / window figures.
-        sc_title = { font = 'decorative', size = 26, chars = 'CSacehikln!' },
+        -- name plus "Burst!", and the damage / window figures.
+        sc_title = { font = 'decorative', size = 26, chars = 'CFSacehikln!.' },
         sc_deco  = { font = 'decorative', size = 18, chars = 'BCDFGILRSTUabcdefghiklmnopqrstuvx!' },
         sc_num   = { font = 'numeral', size = 16, chars = '0123456789,.' },
     },
