@@ -40,6 +40,7 @@ local LEADING = 0.78;
 local NAME_SIZE, SMALL_SIZE = 13, 12; -- weaponskill / spell names; the countdown and combos
 local SHOWN = 4;    -- steps shown, the latest
 local FADE = 1;     -- seconds the chain fades out over, at the end of its linger
+local END_FADE = 0.5; -- seconds the countdown and combos fade out over once the window closes
 local LABELS = 96;  -- regular-font names kept before the cache starts over
 -- "Chance!", "Skillchain!" and the figures come in a letter at a time when
 -- they first show, each letter
@@ -51,6 +52,7 @@ local TOSS_H, STAGGER, TOSS, LAG = 10, 0.05, 0.45, 0.12;
 local chain = nil; -- the record shown, from game/skillchain.lua
 local clock = 0;
 local alpha = 1;
+local end_alpha = 1; -- the countdown and combos'
 
 -- the frame's layout, made once (by the first measure after update) relative
 -- to the component's corner: what to draw where, one list per kind of text so
@@ -63,6 +65,7 @@ local alpha = 1;
 local function list() return { n = 0, t = {}, x = {}, y = {}, c = {}, a = {} }; end
 local atlas, labels_out, splits = list(), list(), list(); -- splits.c: step names
 local tossed = list(); -- atlas text still coming in
+local end_atlas, end_labels = list(), list(); -- the countdown and combos, faded out once the window closes
 local laid_s, laid_h = nil, 0; -- the scale it was made at (nil: not this frame), its height
 local toss_dy, toss_ka = {}, {};
 
@@ -295,15 +298,16 @@ local function next_row(x, y, s)
     local asc, h = metrics(state, timer, combo1);
     local base = y + asc;
     local sw = math.max((lbl_wait:size()), (lbl_go:size()));
-    put_label(state, x, base, tc);
-    put_atlas(timer, x + sw + GAP * s, base, tc);
+    queue(end_labels, state, x, base - state:baseline(), tc);
+    queue(end_atlas, timer, x + sw + GAP * s, base - timer:baseline(), tc);
 
     -- a fixed column, so the names don't shift as the figures tick
     local cx = x + sw + GAP * s + (timer_ref:size()) + GAP * 2 * s;
     local lines = math.max(1, #combos);
     local cc = col('sc_combo');
     for i = 1, #combos do
-        put_label(label(combos[i], SMALL_SIZE), cx, base + (i - 1) * (h + ROW_GAP * s), cc);
+        local l = label(combos[i], SMALL_SIZE);
+        queue(end_labels, l, cx, base + (i - 1) * (h + ROW_GAP * s) - l:baseline(), cc);
     end
     return h * lines + ROW_GAP * s * (lines - 1);
 end
@@ -312,6 +316,7 @@ end
 ---@return number height
 local function layout(x, y, s)
     atlas.n, labels_out.n, splits.n, tossed.n, nlag = 0, 0, 0, 0, 0;
+    end_atlas.n, end_labels.n = 0, 0;
     local y0, gap = y, ROW_GAP * s;
     if (chain == nil) then -- placing it while unlocked
         return header(x, y, 'Skillchain!', col('sc_skillchain'));
@@ -338,7 +343,7 @@ local function layout(x, y, s)
         end
     end
 
-    if (not closed) then
+    if (end_alpha > 0) then
         y = y + next_row(x, y, s);
     else
         y = y - gap;
@@ -398,9 +403,10 @@ function skillchain.update(ctx, dt)
     sc.tick(clock);
     chain = pick();
     laid_s = nil;
-    alpha = 1;
+    alpha, end_alpha = 1, 1;
     if (chain ~= nil and clock > chain.closes) then
         alpha = math.max(0, math.min(1, (chain.closes + sc.LINGER - clock) / FADE));
+        end_alpha = math.max(0, 1 - (clock - chain.closes) / END_FADE);
     end
 end
 
@@ -419,6 +425,9 @@ function skillchain.draw(r, ctx, x, y)
     draw_tossed(x, y, ctx.scale);
     draw_splits(r, x, y);
     draw_list(labels_out, x, y);
+    if (end_alpha < 1) then r.set_opacity(alpha * end_alpha); end
+    draw_list(end_atlas, x, y);
+    draw_list(end_labels, x, y);
     r.set_opacity(1);
     return w, h;
 end
