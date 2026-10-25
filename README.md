@@ -31,6 +31,7 @@ there are 9 components currently:
 - `target` shows your target & subtarget
 - `treas` shows the lootpool when there are items in it
 - `skillchain` tracks your target's current skillchain state
+- `toast` pops up party/alliance invites and trade requests with buttons to answer them (right-click dismisses)
 - `exp` is your exp bar (docks nicely to top and bottom)
 - `inv` is your inventory (off by default)
 - `map` is a shitty map overlay (off by default, drag & zoom)
@@ -51,6 +52,8 @@ and some have their own:
 - `/cc skillchain demo` - plays a made-up chain on your target
 - `/cc treas demo` - toggle a fake pool to try the panel out solo
 - `/cc treas clock` - what's known about the server's pool clock
+- `/cc toast demo` - shows one card of each kind (the buttons only close them)
+- `/cc toast clear` - dismisses every card
 - `/cc map size|zoom|marker [n]` - map size (128-2048), zoom (1-8), marker scale (0.5-4)
 - `/cc map opacity [still] [moving]` - opacity while standing and while moving (0-1)
 - `/cc map info`

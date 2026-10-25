@@ -18,4 +18,5 @@ return {
     { name = 'skillchain', defaults = { enabled = true, anchor = 'right', x = -20, y = -160, grow_y = 'down' } },
     { name = 'inv',    defaults = { enabled = false, anchor = 'right', x = -20, y = 0, columns = 10, rows = 8, unified = true } },
     { name = 'map',    defaults = { enabled = false, anchor = 'center', x = 0, y = 0, size = 512, zoom = 1, marker = 1, opacity = 0.6, opacity_moving = 0.3 } },
+    { name = 'toast',  defaults = { enabled = true, anchor = 'top', x = 360, y = 80, grow_y = 'down' } },
 };

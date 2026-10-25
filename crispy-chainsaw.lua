@@ -209,6 +209,10 @@ ashita.events.register('packet_in', 'packet_in_cb', function (e)
     hud.packet_in(e);
 end);
 
+ashita.events.register('packet_out', 'packet_out_cb', function (e)
+    hud.packet_out(e);
+end);
+
 ashita.events.register('unload', 'unload_cb', function ()
     jitlog.stop();
     hud.shutdown();

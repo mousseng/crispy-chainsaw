@@ -25,6 +25,7 @@
 *   packet_in fn(ctx, e)                 optional; every incoming packet (ashita's
 *                                        packet_in event), even while hidden.
 *                                        check e.id first; this runs a lot.
+*   packet_out fn(ctx, e)                optional; the same for outgoing packets.
 *   command   fn(ctx, args) -> handled, message
 *                                        optional; `/cc <name> ...` args the
 *                                        hud doesn't handle itself. settings
@@ -595,6 +596,16 @@ function hud.packet_in(e)
         local mod = c.mod;
         if (mod ~= nil and mod.packet_in ~= nil) then
             guard(c, 'packet_in', mod.packet_in, c.ctx, e);
+        end
+    end
+end
+
+---routes ashita's packet_out event the same way.
+function hud.packet_out(e)
+    for _, c in ipairs(components) do
+        local mod = c.mod;
+        if (mod ~= nil and mod.packet_out ~= nil) then
+            guard(c, 'packet_out', mod.packet_out, c.ctx, e);
         end
     end
 end

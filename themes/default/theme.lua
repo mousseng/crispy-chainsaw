@@ -59,6 +59,11 @@ return {
         -- treasure pool: an item the player is winning
         loot_win      = 0xFFFFD860,
 
+        -- toasts: the strip and title of each kind of card
+        toast_party    = 0xFF8FD8FF,
+        toast_alliance = 0xFF5FA8FF,
+        toast_trade    = 0xFFFFD860,
+
         -- the target's skillchain: its window (waiting, then open), the
         -- "Chain!" before a burstable resonance, and each element, for its
         -- resonance
