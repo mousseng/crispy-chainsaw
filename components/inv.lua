@@ -57,6 +57,9 @@ local count_num, foot_gil, foot_used = nil, nil, nil;
 local gil_str, used_str = '', '';
 local actions = menu.new();
 local menu_item = nil; -- the item the open menu is for
+-- what menu_item held when the menu opened. bags reuse their item tables when
+-- re-read, so menu_item may since hold another item.
+local menu_bag, menu_index, menu_id, menu_count = 0, 0, 0, 0;
 
 -- tooltip
 local tip_for, tip_title, tip_lines, tip_colors = nil, nil, {}, {};
@@ -141,15 +144,16 @@ end
 --[[ game state ]]--
 
 function inv.update(ctx, dt)
-    inventory.refresh();
-    -- the menu is for an item that has since moved or gone
-    if (menu_item ~= nil and actions:is_open()) then
-        local b = inventory.bag(menu_item.bag);
-        local still = false;
-        for _, e in ipairs(b.items) do
-            if (e == menu_item and e.id == menu_item.id) then still = true; break; end
+    if (inventory.refresh()) then
+        tip_for = nil; -- its table may hold another item now
+        -- the menu is for an item that has since moved, changed or gone
+        if (menu_item ~= nil and actions:is_open()) then
+            local still = nil;
+            for _, e in ipairs(inventory.bag(menu_bag).items) do
+                if (e.index == menu_index and e.id == menu_id and e.count == menu_count) then still = e; break; end
+            end
+            if (still == nil) then actions:close(); else menu_item = still; end
         end
-        if (not still) then actions:close(); end
     end
     if (not actions:is_open()) then menu_item = nil; end
 end
@@ -184,6 +188,8 @@ local TARGETS_OTHERS = 0xFC;
 local function item_menu(e)
     local info, items = e.info, {};
     local in_inv, in_ward = e.bag == INVENTORY, WARDROBE[e.bag] == true;
+    -- packets are built from a copy: e may hold another item by the time one's picked
+    local it = { bag = e.bag, index = e.index, count = e.count };
 
     if (info.usable and (in_inv or in_ward)) then
         local target = band(info.targets, TARGETS_OTHERS) ~= 0 and '<t>' or '<me>';
@@ -215,7 +221,7 @@ local function item_menu(e)
         local dest = {};
         for _, to in ipairs(MOVE_TO) do
             if (to ~= e.bag and (info.gear or not WARDROBE[to]) and inventory.has_access(to)) then
-                dest[#dest + 1] = { label = 'to ' .. inventory.NAMES[to], action = function () move(e, to); end };
+                dest[#dest + 1] = { label = 'to ' .. inventory.NAMES[to], action = function () move(it, to); end };
             end
         end
         if (#dest > 0) then
@@ -226,7 +232,7 @@ local function item_menu(e)
     if (in_inv and not e.locked) then
         local what = e.count > 1 and ('%d %s'):format(e.count, info.log_many) or info.log_one;
         items[#items + 1] = { label = 'Drop', items = {
-            { label = 'Drop ' .. what, action = function () drop(e); end },
+            { label = 'Drop ' .. what, action = function () drop(it); end },
         } };
     end
 
@@ -512,6 +518,7 @@ function inv.mouse(ctx, ev, mx, my, e)
         if (entries ~= nil) then
             actions:open(entries, sx + 2, sy + 2);
             menu_item = item;
+            menu_bag, menu_index, menu_id, menu_count = item.bag, item.index, item.id, item.count;
         end
     end
     return true; -- the panel takes every click aimed at it
